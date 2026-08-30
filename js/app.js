@@ -1207,7 +1207,7 @@ window.App = (function () {
     </div>
 
     <div class="section">
-      <div class="upload-area" id="cb-upload-area" onclick="U.el('cb-file-input').click()"
+      <div class="upload-area" id="cb-upload-area" onclick="document.getElementById('cb-file-input').click()"
         ondragover="event.preventDefault();this.classList.add('drag-over')"
         ondragleave="this.classList.remove('drag-over')"
         ondrop="App.handleCyberbizDrop(event)">
