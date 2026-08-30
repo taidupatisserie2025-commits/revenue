@@ -464,14 +464,14 @@ window.App = (function () {
   function renderLinepayOnsite() {
     const payouts = D.Linepay.getAll();  // sorted desc by date
     const today = U.today();
-    const feeRate = C.LINEPAY_FEE_RATE || 0.028;
+    const feeRate = C.ONSITE_LINEPAY_FEE_RATE || 0.022;
     const taxRate = C.LINEPAY_TAX_RATE || 0.05;
 
     if (!payouts.length) {
       return `
       <div class="page-header">
         <div class="page-title">💚 現場 LinePay 對帳</div>
-        <div class="page-subtitle">同一撥款日自動加總合併核對・N+2 工作日撥款・扣除 2.8% 手續費及 5% 營業稅</div>
+        <div class="page-subtitle">同一撥款日自動加總合併核對・N+2 工作日撥款・扣除 2.2% 手續費及 5% 營業稅</div>
       </div>
       <div class="empty-state" style="padding:60px">
         <div class="empty-icon">💚</div>
@@ -549,7 +549,7 @@ window.App = (function () {
         let rowHtml = `<tr>
           <td><strong>${U.fmt(p.date)}</strong>${U.fmtWeekday(p.date)}</td>
           <td class="td-number text-green">${U.money(p.amount)}</td>
-          <td class="td-number text-red" title="2.8% 手續費 + 5% 營業稅">−${U.money(p.feeAndTax)}</td>`;
+          <td class="td-number text-red" title="2.2% 手續費 + 5% 營業稅">−${U.money(p.feeAndTax)}</td>`;
 
         // Merged columns for same payout date
         if (index === 0) {
@@ -580,7 +580,7 @@ window.App = (function () {
     return `
     <div class="page-header">
       <div class="page-title">💚 現場 LinePay 對帳</div>
-      <div class="page-subtitle">同一撥款日自動加總合併核對・N+2 工作日撥款・扣除 2.8% 手續費及 5% 營業稅</div>
+      <div class="page-subtitle">同一撥款日自動加總合併核對・N+2 工作日撥款・扣除 2.2% 手續費及 5% 營業稅</div>
     </div>
 
     <div class="stat-grid" style="margin-bottom:16px">
@@ -592,7 +592,7 @@ window.App = (function () {
       <div class="stat-card">
         <div class="stat-label">預估手續費+稅</div>
         <div class="stat-value text-red">−${U.money(pendingFee)}</div>
-        <div class="stat-foot">2.8% + 5% 營業稅</div>
+        <div class="stat-foot">2.2% + 5% 營業稅</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">預估淨撥款</div>

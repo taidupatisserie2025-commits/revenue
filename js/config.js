@@ -10,8 +10,9 @@ window.AppConfig = {
   UBER_DEFAULT_COMMISSION: 0.32,   // 32%
 
   // LinePay Fee & Tax
-  LINEPAY_FEE_RATE: 0.028,   // 2.8% 手續費
-  LINEPAY_TAX_RATE: 0.05,    // 5% 手續費營業稅
+  LINEPAY_FEE_RATE: 0.028,          // 2.8% 官網手續費
+  ONSITE_LINEPAY_FEE_RATE: 0.022,   // 2.2% 現場手續費
+  LINEPAY_TAX_RATE: 0.05,           // 5% 手續費營業稅
 
   // CyberBiz
   CYBERBIZ_MAINTENANCE_FEE_RATE: 0.01,  // 1%
