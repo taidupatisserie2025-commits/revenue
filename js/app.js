@@ -1764,6 +1764,59 @@ window.App = (function () {
     handleRoute();
   }
 
+  /* ═══════════════════════════════════════════
+     BACKUP & RESTORE
+  ═══════════════════════════════════════════ */
+  function exportBackup() {
+    try {
+      const data = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        data[key] = localStorage.getItem(key);
+      }
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `backup_${U.today()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast('備份匯出成功！', 'success');
+    } catch (e) {
+      toast('備份失敗：' + e.message, 'error');
+    }
+  }
+
+  function importBackup() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.style.display = 'none';
+    input.onchange = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          let count = 0;
+          for (const [key, value] of Object.entries(data)) {
+            localStorage.setItem(key, value);
+            count++;
+          }
+          toast(`✅ 備份還原成功！共匯入 ${count} 個項目`, 'success');
+          setTimeout(() => location.reload(), 1000);
+        } catch (err) {
+          toast('還原失敗：無效的 JSON 備份檔案', 'error');
+        }
+      };
+      reader.readAsText(file);
+    };
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+  }
+
   document.addEventListener('DOMContentLoaded', init);
 
   /* Public API */
@@ -1786,5 +1839,7 @@ window.App = (function () {
     handleCyberbizUpload, handleCyberbizDrop, confirmCyberbizPayout, doConfirmCyberbiz, deleteCyberbiz, clearCyberbizData,
     // cyberbiz linepay
     confirmCbLinepay, doConfirmCbLinepay,
+    // backup & restore
+    exportBackup, importBackup,
   };
 })();
