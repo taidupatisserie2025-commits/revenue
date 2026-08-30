@@ -679,33 +679,8 @@ window.App = (function () {
         預估交易總額：<strong style="color:var(--green)">${U.money(expectedGross)}</strong> (已扣除跨天退款)
       </div>
       
-      <!-- 連家網路 -->
-      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 12px; background: rgba(59,130,246,0.02)">
-        <div style="font-weight:700; font-size:12px; color:var(--blue); margin-bottom:8px">💳 連家網路公司 (信用卡撥款)</div>
-        <div class="form-grid form-grid-2">
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
-            <div class="input-with-prefix">
-              <span class="input-prefix" style="font-size:11px">NT$</span>
-              <input type="number" id="lp-card-net" class="form-input form-input-sm" value="${estCardNet}">
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
-            <div class="input-with-prefix">
-              <span class="input-prefix" style="font-size:11px">NT$</span>
-              <input type="number" id="lp-card-fee" class="form-input form-input-sm" value="${estCardFee}">
-            </div>
-          </div>
-        </div>
-        <div class="form-group" style="margin-top:8px; margin-bottom:0">
-          <label class="form-label" style="font-size:11px">實際入帳日期</label>
-          <input type="date" id="lp-card-date" class="form-input form-input-sm" value="${payoutDate}">
-        </div>
-      </div>
-      
       <!-- 連家電支 -->
-      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 16px; background: rgba(16,185,129,0.02)">
+      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 12px; background: rgba(16,185,129,0.02)">
         <div style="font-weight:700; font-size:12px; color:var(--green); margin-bottom:8px">📱 連家電子支付公司 (帳戶撥款)</div>
         <div class="form-grid form-grid-2">
           <div class="form-group" style="margin-bottom:0">
@@ -726,6 +701,31 @@ window.App = (function () {
         <div class="form-group" style="margin-top:8px; margin-bottom:0">
           <label class="form-label" style="font-size:11px">實際入帳日期</label>
           <input type="date" id="lp-account-date" class="form-input form-input-sm" value="${payoutDate}">
+        </div>
+      </div>
+
+      <!-- 連家網路 -->
+      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 16px; background: rgba(59,130,246,0.02)">
+        <div style="font-weight:700; font-size:12px; color:var(--blue); margin-bottom:8px">💳 連家網路公司 (信用卡撥款)</div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="lp-card-net" class="form-input form-input-sm" value="${estCardNet}">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="lp-card-fee" class="form-input form-input-sm" value="${estCardFee}">
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:8px; margin-bottom:0">
+          <label class="form-label" style="font-size:11px">實際入帳日期</label>
+          <input type="date" id="lp-card-date" class="form-input form-input-sm" value="${payoutDate}">
         </div>
       </div>
 
