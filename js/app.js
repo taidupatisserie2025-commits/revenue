@@ -464,233 +464,413 @@ window.App = (function () {
   ═══════════════════════════════════════════ */
   function renderLinepayOnsite() {
     const payouts = D.Linepay.getAll();  // sorted desc by date
+    const allBatches = D.LinepayBatches.getAll();
     const today = U.today();
     const feeRate = C.ONSITE_LINEPAY_FEE_RATE || 0.022;
     const taxRate = C.LINEPAY_TAX_RATE || 0.05;
 
-    if (!payouts.length) {
-      return `
-      <div class="page-header">
-        <div class="page-title">💚 現場 LinePay 對帳</div>
-        <div class="page-subtitle">同一撥款日自動加總合併核對・N+2 工作日撥款・扣除 2.2% 手續費及 5% 營業稅</div>
-      </div>
-      <div class="empty-state" style="padding:60px">
-        <div class="empty-icon">💚</div>
-        <div class="empty-text">尚無現場 LinePay 資料</div>
-        <div class="empty-sub">請先在每日報表中輸入 LinePay 金額</div>
-        <div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="App.navigate('daily-form','${today}')">前往填寫 ›</button></div>
-      </div>`;
-    }
+    // Filter pending payouts. Backward compatibility: if no status, treat as pending
+    const pendingPayouts = payouts.filter(p => p.status === 'pending' || !p.status);
 
-    // Helper: compute fee and net payout for a single day amount
     function calcFee(amount) {
       const rawFee = amount * feeRate;
       const fee = Math.round(rawFee);
       const tax  = Math.round(fee * taxRate);
       const feeAndTax = fee + tax;
-      const payoutAmt = Math.max(0, amount - feeAndTax);
+      const payoutAmt = amount - feeAndTax;
       return { fee, tax, feeAndTax, payoutAmt };
     }
 
-    // 1. Group payouts by payoutDate (N+2 工作日), enrich with fee calculations
-    const payoutGroups = {};
-    payouts.forEach(p => {
+    // 1. Group pending payouts by expectedPayoutDate (N+2 工作日)
+    const pendingGroups = {};
+    pendingPayouts.forEach(p => {
       const payoutDate = p.expectedPayoutDate || U.addBusinessDays(p.date, C.LINEPAY_BUSINESS_DAYS);
-      if (!payoutGroups[payoutDate]) payoutGroups[payoutDate] = [];
+      if (!pendingGroups[payoutDate]) pendingGroups[payoutDate] = [];
       const { feeAndTax, payoutAmt } = calcFee(p.amount || 0);
-      payoutGroups[payoutDate].push({ ...p, payoutDate, feeAndTax, payoutAmt });
+      pendingGroups[payoutDate].push({ ...p, payoutDate, feeAndTax, payoutAmt });
     });
 
-    const sortedPayoutDates = Object.keys(payoutGroups).sort((a,b) => b.localeCompare(a)); // newest first
+    const sortedPendingDates = Object.keys(pendingGroups).sort((a,b) => b.localeCompare(a)); // newest first
 
-    // 2. Calculate cumulative confirmed diff (based on NET payoutAmt)
-    let totalDiff = 0;
-    sortedPayoutDates.forEach(payoutDate => {
-      const group = payoutGroups[payoutDate];
-      const combinedPayout = group.reduce((s, p) => s + p.payoutAmt, 0);
-      const key = 'lp_onsite_payout_' + payoutDate;
-      const saved = JSON.parse(localStorage.getItem(key) || 'null');
-      if (saved && saved.actual != null) {
-        totalDiff += (saved.actual - combinedPayout);
-      }
-    });
+    // 2. Summary stats
+    const pendingGross = pendingPayouts.reduce((s, p) => s + (p.amount||0), 0);
+    const pendingFee   = pendingPayouts.reduce((s, p) => s + calcFee(p.amount||0).feeAndTax, 0);
+    const pendingPayout= pendingGross - pendingFee;
+    const confirmedTotal = allBatches.reduce((s, b) => s + (b.actualNet||0), 0);
+    const confirmedCount = allBatches.length;
 
-    // 3. Summary stats
-    const allPending   = payouts.filter(p => p.status === 'pending');
-    const allConfirmed = payouts.filter(p => p.status === 'confirmed');
-    const pendingGross = allPending.reduce((s, p) => s + (p.amount||0), 0);
-    const pendingFee   = allPending.reduce((s, p) => s + calcFee(p.amount||0).feeAndTax, 0);
-    const pendingPayout= allPending.reduce((s, p) => s + calcFee(p.amount||0).payoutAmt, 0);
-    const confirmedTotal = allConfirmed.reduce((s, p) => s + (p.actualAmount||0), 0);
+    // Calculate total hand fee discrepancy
+    const totalDiff = allBatches.reduce((s, b) => s + (b.feeAdjustment || 0), 0);
 
-    // 4. Render grouped rows
-    const dayRowsList = [];
-
-    sortedPayoutDates.forEach(payoutDate => {
-      const group = payoutGroups[payoutDate];
+    // 3. Render pending rows
+    const pendingRowsList = [];
+    sortedPendingDates.forEach(payoutDate => {
+      const group = pendingGroups[payoutDate];
       const groupSize = group.length;
-      const combinedPayout = group.reduce((s, p) => s + p.payoutAmt, 0);
+      const combinedGross = group.reduce((s, p) => s + p.amount, 0);
+      const combinedFee = group.reduce((s, p) => s + p.feeAndTax, 0);
+      const combinedNet = combinedGross - combinedFee;
       const isDue = payoutDate <= today;
-      const datesText = group.map(p => `${U.fmtShort(p.date)}${U.fmtWeekday(p.date)}`).join(', ');
-
-      const key = 'lp_onsite_payout_' + payoutDate;
-      const saved = JSON.parse(localStorage.getItem(key) || 'null');
-      const batchStatus = saved ? 'confirmed' : 'pending';
-      const batchDiff = saved ? (saved.actual - combinedPayout) : null;
-
-      const diffHtml = batchDiff !== null
-        ? (batchDiff === 0
-            ? `<span class="badge badge-info">無差額</span>`
-            : batchDiff > 0
-              ? `<span class="badge badge-success" title="實際多到帳（溢撥/補回）">+${U.money(batchDiff)} (溢撥)</span>`
-              : `<span class="badge badge-danger" title="實際少到帳（負數沖銷抵扣）">−${U.money(Math.abs(batchDiff))} (沖銷)</span>`)
-        : '—';
+      const datesCsv = group.map(p => p.date).join(',');
 
       group.forEach((p, index) => {
         let rowHtml = `<tr>
           <td><strong>${U.fmt(p.date)}</strong>${U.fmtWeekday(p.date)}</td>
-          <td class="td-number text-green">${U.money(p.amount)}</td>
-          <td class="td-number text-red" title="2.2% 手續費 + 5% 營業稅">−${U.money(p.feeAndTax)}</td>`;
+          <td class="td-number ${p.amount >= 0 ? 'text-green' : 'text-red'}">${p.amount >= 0 ? '+' : ''}${U.money(p.amount)}</td>
+          <td class="td-number text-red">−${U.money(p.feeAndTax)}</td>`;
 
-        // Merged columns for same payout date
         if (index === 0) {
           rowHtml += `
           <td rowspan="${groupSize}" class="td-number text-purple" style="font-weight:700;vertical-align:middle;background:rgba(124,58,237,0.05)">
-            ${U.money(combinedPayout)}
+            ${U.money(combinedNet)}
             ${groupSize > 1 ? `<div style="font-size:10px;color:var(--text3);font-weight:normal">(${groupSize}日加總)</div>` : ''}
           </td>
           <td rowspan="${groupSize}" style="vertical-align:middle">
             <strong>${U.fmt(payoutDate)}</strong>${U.fmtWeekday(payoutDate)}
-            ${isDue && batchStatus==='pending' ? '<div style="margin-top:2px"><span class="badge badge-pending">應到帳</span></div>' : ''}
+            ${isDue ? '<div style="margin-top:2px"><span class="badge badge-pending">應到帳</span></div>' : ''}
           </td>
-          <td rowspan="${groupSize}" style="vertical-align:middle">${U.statusBadge(batchStatus)}</td>
-          <td rowspan="${groupSize}" class="td-number" style="vertical-align:middle">${saved ? U.money(saved.actual) : '—'}</td>
-          <td rowspan="${groupSize}" style="vertical-align:middle;text-align:center">${diffHtml}</td>
-          <td rowspan="${groupSize}" style="vertical-align:middle">
-            ${batchStatus !== 'confirmed' ? `<button class="btn btn-success btn-sm" onclick="App.confirmLinepayBatch('${payoutDate}',${combinedPayout},'${datesText}')">確認撥款入帳</button>` : ''}
+          <td rowspan="${groupSize}" style="vertical-align:middle;text-align:center">
+            <button class="btn btn-success btn-sm" onclick="App.confirmLinepayBatch('${payoutDate}',${combinedGross},'${datesCsv}')">確認撥款入帳</button>
           </td>`;
         }
 
         rowHtml += `</tr>`;
-        dayRowsList.push(rowHtml);
+        pendingRowsList.push(rowHtml);
       });
     });
 
-    const tableBody = dayRowsList.join('') || `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">無資料</td></tr>`;
+    const pendingTableBody = pendingRowsList.join('') || `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text3)">🎉 當前無待核對之撥款項目</td></tr>`;
+
+    // 4. Render confirmed batches
+    const batchRows = [];
+    allBatches.forEach(b => {
+      const diff = b.feeAdjustment || 0;
+      const diffHtml = diff === 0
+        ? `<span class="badge badge-info">無差額</span>`
+        : diff > 0
+          ? `<span class="badge badge-success" title="實際手續費少扣（少付費或溢撥）">+${U.money(diff)}</span>`
+          : `<span class="badge badge-danger" title="實際手續費多扣（多付費或折抵）">−${U.money(Math.abs(diff))}</span>`;
+
+      const entityName = b.channel === 'card' ? '💳 連家網路 (信用卡)' : '📱 連家電子支付';
+
+      batchRows.push(`<tr>
+        <td><strong>${b.id.replace('lp_batch_card_', '').replace('lp_batch_account_', '')}</strong></td>
+        <td><span style="font-size:12px">${entityName}</span></td>
+        <td><strong>${U.fmt(b.actualDate)}</strong>${U.fmtWeekday(b.actualDate)}</td>
+        <td class="td-number text-green">${U.money(b.grossAmount)}</td>
+        <td class="td-number text-red">−${U.money(b.actualFee)}</td>
+        <td class="td-number text-purple" style="font-weight:700">${U.money(b.expectedNet)}</td>
+        <td class="td-number text-green" style="font-weight:700;background:rgba(16,185,129,0.03)">${U.money(b.actualNet)}</td>
+        <td style="text-align:center">${diffHtml}</td>
+        <td style="text-align:center">
+          <button class="btn btn-ghost btn-sm text-red" onclick="App.deleteLinepayBatch('${b.id}')">撤銷核銷</button>
+        </td>
+      </tr>`);
+    });
+
+    const batchTableBody = batchRows.join('') || `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之批次記錄</td></tr>`;
 
     return `
     <div class="page-header">
       <div class="page-title">💚 現場 LinePay 對帳</div>
-      <div class="page-subtitle">同一撥款日自動加總合併核對・N+2 工作日撥款・扣除 2.2% 手續費及 5% 營業稅</div>
+      <div class="page-subtitle">同一預期撥款日加總合併核對・不改變前端記帳習慣・支援雙公司撥款與手續費獨立分流</div>
     </div>
 
     <div class="stat-grid" style="margin-bottom:16px">
       <div class="stat-card">
-        <div class="stat-label">待撥款（扣費前）</div>
+        <div class="stat-label">待撥款總額 (日累計)</div>
         <div class="stat-value text-amber">${U.money(pendingGross)}</div>
-        <div class="stat-foot">${allPending.length} 筆</div>
+        <div class="stat-foot">${pendingPayouts.length} 天待撥</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">預估手續費+稅</div>
+        <div class="stat-label">預估費用</div>
         <div class="stat-value text-red">−${U.money(pendingFee)}</div>
         <div class="stat-foot">2.2% + 5% 營業稅</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">預估淨撥款</div>
+        <div class="stat-label">預估應入帳淨額</div>
         <div class="stat-value text-purple">${U.money(pendingPayout)}</div>
-        <div class="stat-foot">扣費後應到帳</div>
+        <div class="stat-foot">預期實收總額</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">已確認入帳</div>
+        <div class="stat-label">已核對總入帳</div>
         <div class="stat-value text-green">${U.money(confirmedTotal)}</div>
-        <div class="stat-foot">${allConfirmed.length} 筆</div>
+        <div class="stat-foot">共核對 ${confirmedCount} 個分流批次</div>
       </div>
     </div>
 
     <div class="row-between" style="align-items:stretch;gap:14px;margin-bottom:16px">
       <div style="flex:1;font-size:12px;color:var(--text2);padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);line-height:1.6">
-        📌 <strong>手續費與撥款說明：</strong><br>
-        ・<strong style="color:var(--red)">手續費 2.8%</strong>：每筆交易金額 × 2.8%（四捨五入）。<br>
-        ・<strong style="color:var(--red)">手續費營業稅 5%</strong>：手續費金額 × 5%（四捨五入）。<br>
-        ・<strong>N+2 工作日撥款</strong>：週五/六/日通常合併在同一個週二撥款。
+        📌 <strong>Line Pay 現場核銷指引：</strong><br>
+        ・<strong>取消交易 (退款)</strong>：店員直接於日報表記入負數。退款會在此處的待撥日加總中自動扣抵。<br>
+        ・<strong>分流核對</strong>：在點擊確認撥款入帳時，分別填入網銀收到的「連家網路」和「連家電支」入帳淨額與實際扣除手續費，系統會自動在後台存檔為兩筆獨立結算紀錄。<br>
+        ・<strong>手續費與日期</strong>：手續費微小四捨五入誤差會自動歸入「手續費差額」；若銀行延期入帳，可在 Modal 中自行修改實際入帳日。
       </div>
       <div style="width:260px;min-width:240px;background:var(--bg2);border:1px solid ${totalDiff < 0 ? 'rgba(239,68,68,0.35)' : totalDiff > 0 ? 'rgba(16,185,129,0.35)' : 'var(--border)'};border-radius:var(--radius-sm);padding:14px 16px;display:flex;flex-direction:column;justify-content:center">
         <div style="font-size:12px;font-weight:600;color:var(--text2);display:flex;justify-content:space-between;align-items:center">
-          <span>⚖️ 當下撥款差額 / 沖銷餘額</span>
+          <span>⚖️ 累計手續費差額</span>
           <span class="badge ${totalDiff === 0 ? 'badge-info' : totalDiff > 0 ? 'badge-success' : 'badge-danger'}">
-            ${totalDiff === 0 ? '無差額' : totalDiff > 0 ? '溢撥/補回' : '沖銷抵扣中'}
+            ${totalDiff === 0 ? '無差額' : totalDiff > 0 ? '累計溢收' : '累計溢付'}
           </span>
         </div>
         <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0 2px;color:${totalDiff > 0 ? 'var(--green)' : totalDiff < 0 ? 'var(--red)' : 'var(--text)'}">
           ${totalDiff === 0 ? 'NT$ 0' : U.moneySign(totalDiff)}
         </div>
         <div style="font-size:11px;color:var(--text3);line-height:1.3">
-          ${totalDiff < 0 ? '⚠️ 包含負數沖銷抵扣 / 實際少到帳' : totalDiff > 0 ? '✨ 包含多預付或前期沖銷補回' : '✅ 撥款無差額或尚未確認入帳'}
+          ${totalDiff < 0 ? '⚠️ 包含撥款四捨五入累積的多扣除額' : totalDiff > 0 ? '✨ 包含撥款四捨五入多預付補回' : '✅ 撥款手續費無累積差額'}
         </div>
       </div>
     </div>
 
-    <div class="table-wrap">
+    <!-- 待核對清單 -->
+    <div class="section-title" style="margin:20px 0 8px;font-size:14px;font-weight:700">⏳ 待核對撥款 (依預計撥款日合併)</div>
+    <div class="table-wrap" style="margin-bottom:28px">
       <table>
         <thead><tr>
           <th>交易日</th>
-          <th>交易金額</th>
-          <th>手續費+稅</th>
-          <th>合併淨撥款</th>
+          <th>交易總額</th>
+          <th>手續費+稅(估)</th>
+          <th>預估合併淨額</th>
           <th>預計撥款日（N+2）</th>
-          <th>狀態</th>
-          <th>實際入帳</th>
-          <th>撥款差額</th>
-          <th></th>
+          <th style="text-align:center">操作</th>
         </tr></thead>
-        <tbody>${tableBody}</tbody>
+        <tbody>${pendingTableBody}</tbody>
       </table>
-    </div>`;
+    </div>
+
+    <!-- 已核對批次 -->
+    <div class="section-title" style="margin:20px 0 8px;font-size:14px;font-weight:700">✅ 已核銷之撥款批次紀錄</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>撥款批次日</th>
+          <th>撥款主體</th>
+          <th>實際入帳日</th>
+          <th>該管道交易總額</th>
+          <th>實際手續費+稅</th>
+          <th>預估應收</th>
+          <th>銀行實際入帳</th>
+          <th style="text-align:center">手續費差額</th>
+          <th style="text-align:center">操作</th>
+        </tr></thead>
+        <tbody>${batchTableBody}</tbody>
+      </table>
+    </div>
+    `;
   }
 
-  function confirmLinepayBatch(payoutDate, expectedAmount, datesText) {
+  function confirmLinepayBatch(payoutDate, expectedGross, datesCsv) {
+    const feeRate = C.ONSITE_LINEPAY_FEE_RATE || 0.022;
+    
+    // Estimates pre-filled for card (70%) and account (30%)
+    const estCardGross = Math.round(expectedGross * 0.7);
+    const estAccountGross = expectedGross - estCardGross;
+    
+    const estCardFee = Math.round(estCardGross * feeRate * 1.05);
+    const estCardNet = estCardGross - estCardFee;
+    
+    const estAccountFee = Math.round(estAccountGross * feeRate * 1.05);
+    const estAccountNet = estAccountGross - estAccountFee;
+
     openModal('確認現場 LinePay 撥款入帳', `
-      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.6">
+      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.6">
         預計撥款日：<strong style="color:var(--text)">${U.fmt(payoutDate)}${U.fmtWeekday(payoutDate)}</strong><br>
-        包含交易日：<strong style="color:var(--purple-light)">${datesText}</strong><br>
-        預估撥款總額：<strong style="color:var(--green)">${U.money(expectedAmount)}</strong>
+        包含交易日：<strong style="color:var(--purple-light)">${datesCsv.split(',').map(d => U.fmtShort(d)).join(', ')}</strong><br>
+        預估交易總額：<strong style="color:var(--green)">${U.money(expectedGross)}</strong> (已扣除跨天退款)
       </div>
-      <div class="form-group" style="margin-bottom:20px">
-        <label class="form-label">LinePay 實際撥款金額（銀行入帳金額）</label>
-        <div class="input-with-prefix">
-          <span class="input-prefix">NT$</span>
-          <input type="number" id="lp-onsite-actual" class="form-input input-money" value="${expectedAmount}">
+      
+      <!-- 連家網路 -->
+      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 12px; background: rgba(59,130,246,0.02)">
+        <div style="font-weight:700; font-size:12px; color:var(--blue); margin-bottom:8px">💳 連家網路公司 (信用卡撥款)</div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="lp-card-net" class="form-input form-input-sm" value="${estCardNet}">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="lp-card-fee" class="form-input form-input-sm" value="${estCardFee}">
+            </div>
+          </div>
         </div>
-        <div class="form-hint">請依銀行網路銀行或存摺實際入帳金額填入</div>
+        <div class="form-group" style="margin-top:8px; margin-bottom:0">
+          <label class="form-label" style="font-size:11px">實際入帳日期</label>
+          <input type="date" id="lp-card-date" class="form-input form-input-sm" value="${payoutDate}">
+        </div>
       </div>
+      
+      <!-- 連家電支 -->
+      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 16px; background: rgba(16,185,129,0.02)">
+        <div style="font-weight:700; font-size:12px; color:var(--green); margin-bottom:8px">📱 連家電子支付公司 (帳戶撥款)</div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="lp-account-net" class="form-input form-input-sm" value="${estAccountNet}">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="lp-account-fee" class="form-input form-input-sm" value="${estAccountFee}">
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:8px; margin-bottom:0">
+          <label class="form-label" style="font-size:11px">實際入帳日期</label>
+          <input type="date" id="lp-account-date" class="form-input form-input-sm" value="${payoutDate}">
+        </div>
+      </div>
+
       <div class="row-end">
         <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
-        <button class="btn btn-success" onclick="App.doConfirmLinepayBatch('${payoutDate}')">✅ 確認入帳</button>
+        <button class="btn btn-success" onclick="App.doConfirmLinepayBatch('${payoutDate}', ${expectedGross}, '${datesCsv}')">✅ 確認入帳</button>
       </div>`);
   }
 
-  function doConfirmLinepayBatch(payoutDate) {
-    const actual = Number(U.el('lp-onsite-actual').value);
-    if (isNaN(actual)) return toast('請輸入有效金額', 'error');
-    localStorage.setItem('lp_onsite_payout_' + payoutDate, JSON.stringify({ actual, confirmedAt: new Date().toISOString() }));
+  function doConfirmLinepayBatch(payoutDate, expectedGross, datesCsv) {
+    const cardNet = Number(U.el('lp-card-net').value);
+    const cardFee = Number(U.el('lp-card-fee').value);
+    const cardDate = U.el('lp-card-date').value;
+    
+    const accountNet = Number(U.el('lp-account-net').value);
+    const accountFee = Number(U.el('lp-account-fee').value);
+    const accountDate = U.el('lp-account-date').value;
 
-    // Update individual payout status in D.Linepay for the date records in this batch
-    const group = D.Linepay.getAll().filter(p => {
-      const pd = p.expectedPayoutDate || U.addBusinessDays(p.date, C.LINEPAY_BUSINESS_DAYS);
-      return pd === payoutDate;
+    if (!cardDate || !accountDate) return toast('請填入完整的入帳日期', 'error');
+    if (isNaN(cardNet) || isNaN(cardFee) || isNaN(accountNet) || isNaN(accountFee)) {
+      return toast('請填入有效的核銷金額', 'error');
+    }
+
+    const calculatedGross = cardNet + cardFee + accountNet + accountFee;
+    const diff = Math.abs(calculatedGross - expectedGross);
+    
+    if (diff > 15) {
+      if (!confirm(`核對總額 (NT$ ${calculatedGross}) 與預估交易總額 (NT$ ${expectedGross}) 存在 NT$ ${diff} 的差額，是否強制核銷？`)) {
+        return;
+      }
+    }
+
+    const cardBatchId = 'lp_batch_card_' + payoutDate;
+    const accountBatchId = 'lp_batch_account_' + payoutDate;
+
+    // 1. Create card batch
+    const cardEstFee = Math.round((cardNet + cardFee) * (C.ONSITE_LINEPAY_FEE_RATE || 0.022) * 1.05);
+    D.LinepayBatches.upsert({
+      id: cardBatchId,
+      channel: 'card',
+      expectedDate: payoutDate,
+      actualDate: cardDate,
+      grossAmount: cardNet + cardFee,
+      refundAmount: 0,
+      actualFee: cardFee,
+      actualTax: 0,
+      expectedNet: cardNet + cardFee - cardEstFee,
+      actualNet: cardNet,
+      feeAdjustment: cardFee - cardEstFee,
+      status: 'confirmed',
+      transactionIds: datesCsv.split(',').map(d => `${d}_card`)
     });
-    group.forEach(p => {
-      D.Linepay.confirm(p.date, p.amount); // mark as confirmed (individual records)
+
+    // 2. Create account batch
+    const accountEstFee = Math.round((accountNet + accountFee) * (C.ONSITE_LINEPAY_FEE_RATE || 0.022) * 1.05);
+    D.LinepayBatches.upsert({
+      id: accountBatchId,
+      channel: 'account',
+      expectedDate: payoutDate,
+      actualDate: accountDate,
+      grossAmount: accountNet + accountFee,
+      refundAmount: 0,
+      actualFee: accountFee,
+      actualTax: 0,
+      expectedNet: accountNet + accountFee - accountEstFee,
+      actualNet: accountNet,
+      feeAdjustment: accountFee - accountEstFee,
+      status: 'confirmed',
+      transactionIds: datesCsv.split(',').map(d => `${d}_account`)
+    });
+
+    // 3. Mark individual days status as confirmed and store both batchIds
+    const transactionDates = datesCsv.split(',');
+    transactionDates.forEach(date => {
+      const tx = D.Linepay.getByDate(date);
+      if (tx) {
+        D.Linepay.confirm(date, tx.amount, cardDate, `${cardBatchId},${accountBatchId}`);
+      }
     });
 
     closeModal();
-    toast('現場 LinePay 撥款已確認入帳', 'success');
+    toast('撥款雙渠道分流核銷成功', 'success');
     navigate('linepay-onsite');
   }
 
-  // Legacy individual confirm (kept for backward-compat, now unused in UI)
-  function confirmLinepay(date, amount) { confirmLinepayBatch(U.addBusinessDays(date, C.LINEPAY_BUSINESS_DAYS), amount, U.fmtShort(date)); }
-  function doConfirmLinepay(date) { doConfirmLinepayBatch(date); }
+  function deleteLinepayBatch(batchId) {
+    if (!confirm('確定要撤銷此撥款渠道的核銷嗎？這將會把此批次的入帳狀態重設為未核對。')) return;
+
+    const batch = D.LinepayBatches.getById(batchId);
+    if (batch) {
+      const expectedDate = batch.expectedDate;
+      D.LinepayBatches.delete(batchId);
+
+      // Check if the other channel batch exists
+      const otherChannel = batch.channel === 'card' ? 'account' : 'card';
+      const otherBatchId = `lp_batch_${otherChannel}_${expectedDate}`;
+      const otherExists = D.LinepayBatches.getById(otherBatchId) !== null;
+
+      // If both channels are cleared, unconfirm the daily transaction
+      if (!otherExists) {
+        const allTx = D.Linepay.getAll();
+        allTx.forEach(tx => {
+          const payoutDate = tx.expectedPayoutDate || U.addBusinessDays(tx.date, C.LINEPAY_BUSINESS_DAYS);
+          if (payoutDate === expectedDate) {
+            D.Linepay.unconfirm(tx.date);
+          }
+        });
+      }
+
+      toast('已撤銷該渠道的核銷', 'info');
+      navigate('linepay-onsite');
+    }
+  }
+
+  // Legacy individual confirm (kept for backward-compat)
+  function confirmLinepay(date, amount) { 
+    confirmLinepayBatch(U.addBusinessDays(date, C.LINEPAY_BUSINESS_DAYS), amount, date); 
+  }
+  function doConfirmLinepay(date) { 
+    const payoutDate = U.addBusinessDays(date, C.LINEPAY_BUSINESS_DAYS);
+    const tx = D.Linepay.getByDate(date);
+    if (tx) {
+      const fee = Math.round(tx.amount * (C.ONSITE_LINEPAY_FEE_RATE || 0.022) * 1.05);
+      const net = tx.amount - fee;
+      
+      D.LinepayBatches.upsert({
+        id: 'lp_batch_card_' + payoutDate,
+        channel: 'card',
+        expectedDate: payoutDate,
+        actualDate: payoutDate,
+        grossAmount: tx.amount,
+        refundAmount: 0,
+        actualFee: fee,
+        actualTax: 0,
+        expectedNet: net,
+        actualNet: net,
+        feeAdjustment: 0,
+        status: 'confirmed',
+        transactionIds: [`${date}_card`]
+      });
+      D.Linepay.confirm(date, net, payoutDate, 'lp_batch_card_' + payoutDate);
+    }
+    toast('核對成功', 'success');
+    navigate('linepay-onsite');
+  }
 
   /* ═══════════════════════════════════════════
      PAGE: TAISHIN
@@ -1819,7 +1999,7 @@ window.App = (function () {
     saveDailyForm, deleteDaily,
     // linepay onsite
     confirmLinepay, doConfirmLinepay,
-    confirmLinepayBatch, doConfirmLinepayBatch,
+    confirmLinepayBatch, doConfirmLinepayBatch, deleteLinepayBatch,
     // taishin
     confirmTaishin, doConfirmTaishin, openTaishinSettings, saveTaishinSettings,
     // uber
