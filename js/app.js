@@ -404,8 +404,8 @@ window.App = (function () {
 
     D.Daily.upsert({ date, onsite, notes: fd.get('notes') || '' });
 
-    // Auto-update LinePay payout entry
-    if (onsite.linePay > 0) {
+    // Auto-update LinePay payout entry (supports positive payments and negative refunds)
+    if (onsite.linePay !== 0) {
       const expectedPayoutDate = U.addBusinessDays(date, C.LINEPAY_BUSINESS_DAYS);
       const existing = D.Linepay.getByDate(date);
       D.Linepay.upsert({
@@ -415,6 +415,7 @@ window.App = (function () {
         status: existing?.status || 'pending',
         actualAmount: existing?.actualAmount ?? null,
         actualDate: existing?.actualDate ?? null,
+        payoutBatchId: existing?.payoutBatchId ?? null
       });
     } else {
       D.Linepay.delete(date);

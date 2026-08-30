@@ -56,19 +56,51 @@ window.AppData = (function () {
       else { all.push(payout); }
       save(K.LINEPAY, all);
     },
-    confirm(date, amount) {
+    confirm(date, actualAmount, actualDate, batchId) {
       const all = load(K.LINEPAY);
       const idx = all.findIndex(r => r.date === date);
       if (idx >= 0) {
-        all[idx].actualAmount = amount;
-        all[idx].actualDate = AppUtils.today();
-        all[idx].status = Math.abs(amount - all[idx].amount) < 1 ? 'confirmed' : 'discrepancy';
+        all[idx].actualAmount = actualAmount;
+        all[idx].actualDate = actualDate || AppUtils.today();
+        all[idx].status = 'confirmed';
+        all[idx].payoutBatchId = batchId || null;
+        save(K.LINEPAY, all);
+      }
+    },
+    unconfirm(date) {
+      const all = load(K.LINEPAY);
+      const idx = all.findIndex(r => r.date === date);
+      if (idx >= 0) {
+        all[idx].actualAmount = null;
+        all[idx].actualDate = null;
+        all[idx].status = 'pending';
+        all[idx].payoutBatchId = null;
         save(K.LINEPAY, all);
       }
     },
     delete(date) {
       save(K.LINEPAY, load(K.LINEPAY).filter(r => r.date !== date));
     },
+  };
+
+  /* ── LinePay Payout Batches ── */
+  const LinepayBatches = {
+    getAll() { 
+      return load(K.LINEPAY_BATCHES).sort((a,b) => (b.actualDate || b.expectedDate).localeCompare(a.actualDate || a.expectedDate)); 
+    },
+    getById(id) { 
+      return load(K.LINEPAY_BATCHES).find(b => b.id === id) || null; 
+    },
+    upsert(batch) {
+      const all = load(K.LINEPAY_BATCHES);
+      const idx = all.findIndex(b => b.id === batch.id);
+      if (idx >= 0) { all[idx] = { ...all[idx], ...batch }; }
+      else { all.push(batch); }
+      save(K.LINEPAY_BATCHES, all);
+    },
+    delete(id) {
+      save(K.LINEPAY_BATCHES, load(K.LINEPAY_BATCHES).filter(b => b.id !== id));
+    }
   };
 
   /* ── Taishin Payouts ── */
@@ -246,5 +278,5 @@ window.AppData = (function () {
     save(s) { save(K.SETTINGS, s); },
   };
 
-  return { Daily, Linepay, Taishin, Uber, Cash, Transfer, Cyberbiz, Settings };
+  return { Daily, Linepay, LinepayBatches, Taishin, Uber, Cash, Transfer, Cyberbiz, Settings };
 })();

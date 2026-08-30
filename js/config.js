@@ -19,14 +19,15 @@ window.AppConfig = {
 
   // Storage keys
   KEYS: {
-    DAILY:     'ta_daily_reports',
-    LINEPAY:   'ta_linepay_payouts',
-    TAISHIN:   'ta_taishin_payouts',
-    UBER:      'ta_uber_weeks',
-    CASH:      'ta_cash_closes',
-    TRANSFER:  'ta_transfers',
-    CYBERBIZ:  'ta_cyberbiz_periods',
-    SETTINGS:  'ta_settings',
+    DAILY:            'ta_daily_reports',
+    LINEPAY:          'ta_linepay_payouts',
+    LINEPAY_BATCHES:  'ta_linepay_batches',
+    TAISHIN:          'ta_taishin_payouts',
+    UBER:             'ta_uber_weeks',
+    CASH:             'ta_cash_closes',
+    TRANSFER:         'ta_transfers',
+    CYBERBIZ:         'ta_cyberbiz_periods',
+    SETTINGS:         'ta_settings',
   },
 
   // Taiwan 2025-2026 public holidays (for N+2 calc)
