@@ -1787,34 +1787,26 @@ window.App = (function () {
     }
   }
 
-  function importBackup() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.style.display = 'none';
-    input.onchange = e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = ev => {
-        try {
-          const data = JSON.parse(ev.target.result);
-          let count = 0;
-          for (const [key, value] of Object.entries(data)) {
-            localStorage.setItem(key, value);
-            count++;
-          }
-          toast(`✅ 備份還原成功！共匯入 ${count} 個項目`, 'success');
-          setTimeout(() => location.reload(), 1000);
-        } catch (err) {
-          toast('還原失敗：無效的 JSON 備份檔案', 'error');
+  function handleBackupUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        let count = 0;
+        for (const [key, value] of Object.entries(data)) {
+          localStorage.setItem(key, value);
+          count++;
         }
-      };
-      reader.readAsText(file);
+        toast(`✅ 備份還原成功！共匯入 ${count} 個項目`, 'success');
+        setTimeout(() => location.reload(), 1000);
+      } catch (err) {
+        toast('還原失敗：無效的 JSON 備份檔案', 'error');
+      }
     };
-    document.body.appendChild(input);
-    input.click();
-    document.body.removeChild(input);
+    reader.readAsText(file);
+    event.target.value = ''; // reset
   }
 
   document.addEventListener('DOMContentLoaded', init);
@@ -1840,6 +1832,6 @@ window.App = (function () {
     // cyberbiz linepay
     confirmCbLinepay, doConfirmCbLinepay,
     // backup & restore
-    exportBackup, importBackup,
+    exportBackup, handleBackupUpload,
   };
 })();

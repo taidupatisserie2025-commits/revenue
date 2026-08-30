@@ -923,8 +923,9 @@ tbody tr:hover td { background: var(--card-hover); }
         <div id="sidebar-date" class="sidebar-date" style="margin-bottom: 8px;"></div>
         <div class="row" style="gap:6px; flex-wrap:nowrap">
           <button class="btn btn-ghost btn-sm" onclick="App.exportBackup()" style="font-size:10px; padding:4px 6px; flex:1; text-align:center; border:1px solid var(--border)">📦 匯出</button>
-          <button class="btn btn-ghost btn-sm" onclick="App.importBackup()" style="font-size:10px; padding:4px 6px; flex:1; text-align:center; border:1px solid var(--border)">📂 匯入</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('backup-file-input').click()" style="font-size:10px; padding:4px 6px; flex:1; text-align:center; border:1px solid var(--border)">📂 匯入</button>
         </div>
+        <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="App.handleBackupUpload(event)">
       </div>
     </aside>
 
@@ -952,9 +953,9 @@ tbody tr:hover td { background: var(--card-hover); }
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <!-- App modules -->
-  <script src="js/config.js?v=1.0.1"></script>
-  <script src="js/data.js?v=1.0.1"></script>
-  <script src="js/utils.js?v=1.0.1"></script>
-  <script src="js/app.js?v=1.0.1"></script>
+  <script src="js/config.js?v=1.0.2"></script>
+  <script src="js/data.js?v=1.0.2"></script>
+  <script src="js/utils.js?v=1.0.2"></script>
+  <script src="js/app.js?v=1.0.2"></script>
 </body>
 </html>
