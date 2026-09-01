@@ -68,8 +68,15 @@ window.AppData = (function () {
         dot.style.background = 'var(--green)';
         text.textContent = '雲端連線正常 (即時寫入)';
       } else {
-        dot.style.background = 'var(--amber)';
-        text.textContent = msg || '雲端資料庫連結中...';
+        dot.style.background = 'var(--red)';
+        const rawMsg = (typeof msg === 'string') ? msg : (msg && msg.message ? msg.message : '');
+        if (rawMsg.toLowerCase().includes('permission') || rawMsg.toLowerCase().includes('insufficient')) {
+          text.textContent = '⚠️ 權限不足 (請至 Console 改 Rules)';
+        } else if (rawMsg.toLowerCase().includes('not-found') || rawMsg.toLowerCase().includes('database')) {
+          text.textContent = '⚠️ 請至 Console 建立 Firestore Database';
+        } else {
+          text.textContent = rawMsg || '⚠️ 雲端資料庫連結失敗';
+        }
       }
     }
   }
