@@ -147,23 +147,25 @@ window.AppData = (function () {
         const collectionName = COLLECTION_MAP[k];
         if (!collectionName) continue;
         const snapshot = await window.db.collection(collectionName).get();
-        if (!snapshot.empty) {
-          if (k === K.SETTINGS) {
+
+        if (k === K.SETTINGS) {
+          if (!snapshot.empty) {
             snapshot.forEach(doc => {
               if (doc.id === 'general') localStorage.setItem(k, JSON.stringify(doc.data()));
             });
-          } else {
-            const cloudDocs = [];
-            const cloudIds = new Set();
-            snapshot.forEach(doc => { cloudDocs.push(doc.data()); cloudIds.add(doc.id); });
-            // Merge: Firestore wins + keep local-only docs
-            const localList = load(k) || [];
-            const localOnly = localList.filter(item => { const id = getDocId(k, item); return id && !cloudIds.has(id); });
-            const merged = [...cloudDocs, ...localOnly];
-            localStorage.setItem(k, JSON.stringify(merged));
-            // Auto-heal: push local-only docs to cloud
-            for (const item of localOnly) { writeDoc(k, item); }
           }
+        } else {
+          // Always run merge — even if cloud is empty
+          const cloudDocs = [];
+          const cloudIds = new Set();
+          snapshot.forEach(doc => { cloudDocs.push(doc.data()); cloudIds.add(doc.id); });
+          // Merge: Firestore wins + keep local-only docs
+          const localList = load(k) || [];
+          const localOnly = localList.filter(item => { const id = getDocId(k, item); return id && !cloudIds.has(id); });
+          const merged = [...cloudDocs, ...localOnly];
+          localStorage.setItem(k, JSON.stringify(merged));
+          // Auto-heal: push local-only docs to cloud (works even if cloud is empty)
+          for (const item of localOnly) { writeDoc(k, item); }
         }
       }
       updateCloudStatus(true);
