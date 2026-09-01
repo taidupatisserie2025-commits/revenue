@@ -2,7 +2,7 @@
 const https = require('https');
 
 const FIREBASE_PROJECT_ID = 'reveune-912d3';
-const FIRESTORE_DATABASE = 'revenue';
+const FIRESTORE_DATABASE = '(default)';   // Must match web app (compat SDK only supports default)
 const FIREBASE_API_KEY = 'AIzaSyAKvG8VbEykx507zX9TlswHRWm8frJuFBM';
 
 // 解析 LINE 訊息文字 (範例 A 格式)

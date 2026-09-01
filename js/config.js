@@ -70,14 +70,11 @@ window.AppConfig = {
   if (typeof firebase !== 'undefined' && window.AppConfig.FIREBASE_CONFIG?.apiKey) {
     try {
       const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(window.AppConfig.FIREBASE_CONFIG);
-      // Connect specifically to the custom database named 'revenue'
-      try {
-        window.db = firebase.firestore(app, 'revenue');
-      } catch (err) {
-        window.db = firebase.firestore();
-      }
+      // NOTE: Firebase Compat SDK only supports (default) database
+      // Named database 'revenue' is not supported in compat SDK
+      window.db = firebase.firestore(app);
 
-      // Auto detect Long Polling to prevent WebChannel RPC Write Stream errors
+      // Auto detect Long Polling to prevent WebChannel RPC Write Stream errors in Safari
       if (window.db && typeof window.db.settings === 'function') {
         window.db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
       }
