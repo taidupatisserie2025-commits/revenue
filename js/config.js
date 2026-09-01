@@ -69,11 +69,10 @@ window.AppConfig = {
 (function initFirebase() {
   if (typeof firebase !== 'undefined' && window.AppConfig.FIREBASE_CONFIG?.apiKey) {
     try {
-      if (!firebase.apps.length) {
-        firebase.initializeApp(window.AppConfig.FIREBASE_CONFIG);
-      }
-      window.db = firebase.firestore();
-      // Enable offline persistence cleanly
+      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(window.AppConfig.FIREBASE_CONFIG);
+      // Connect specifically to the custom database named 'revenue'
+      window.db = firebase.firestore(app, 'revenue');
+      // Enable offline persistence
       window.db.enablePersistence().catch(() => {});
     } catch (e) {
       console.warn('Firebase init warning:', e);
