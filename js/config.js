@@ -73,8 +73,8 @@ window.AppConfig = {
         firebase.initializeApp(window.AppConfig.FIREBASE_CONFIG);
       }
       window.db = firebase.firestore();
-      // Enable offline persistence
-      window.db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+      // Enable offline persistence cleanly
+      window.db.enablePersistence().catch(() => {});
     } catch (e) {
       console.warn('Firebase init warning:', e);
     }
