@@ -1,4 +1,4 @@
-/* api/line-webhook.js — LINE Bot Serverless Webhook Handler with Firestore API Key Auth */
+/* api/line-webhook.js — LINE Bot Serverless Webhook Handler */
 const https = require('https');
 
 const FIREBASE_PROJECT_ID = 'reveune-912d3';
@@ -44,94 +44,102 @@ function parseLineMessage(text) {
 
   const total = onsite.cash + onsite.taishinCC + onsite.taishinAP + onsite.linePay + onsite.uber + onsite.bankTransfer;
 
-  return {
-    date: dateStr,
-    onsite,
-    total,
-    notes: 'LINE 群組自動回報'
-  };
+  if (total === 0) return null; // ignore non-report messages
+
+  return { date: dateStr, onsite, total, notes: 'LINE 群組自動回報' };
+}
+
+// Write to Firestore REST API
+// NOTE: Firestore REST API requires integerValue to be a STRING representation
+function makeIntField(n) {
+  return { integerValue: String(n) };
 }
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(200).send('LINE Webhook Endpoint is Running');
+    return res.status(200).send('LINE Webhook Endpoint is Running ✅');
   }
 
   let body = req.body;
   if (typeof body === 'string') {
-    try { body = JSON.parse(body); } catch (e) {}
+    try { body = JSON.parse(body); } catch (e) { console.error('Body parse error:', e); }
   }
 
   const events = body?.events || [];
-  console.log(`Received ${events.length} LINE events`);
+  console.log(`📨 Received ${events.length} LINE events`);
 
   for (const event of events) {
-    if (event.type === 'message' && event.message && event.message.type === 'text') {
-      const text = event.message.text;
-      console.log('LINE Message text:', text);
+    if (event.type !== 'message' || !event.message || event.message.type !== 'text') continue;
 
-      const parsed = parseLineMessage(text);
-      console.log('Parsed result:', JSON.stringify(parsed));
+    const text = event.message.text;
+    console.log('📩 LINE text received:', JSON.stringify(text));
 
-      if (parsed && parsed.total > 0) {
-        try {
-          // Add API Key query param to pass Firestore REST security check
-          const documentUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/${FIRESTORE_DATABASE}/documents/daily_reports/${parsed.date}?key=${FIREBASE_API_KEY}`;
-          const payload = {
+    const parsed = parseLineMessage(text);
+    if (!parsed) {
+      console.log('⚠️ No amounts detected, skipping.');
+      continue;
+    }
+
+    console.log(`✅ Parsed: date=${parsed.date}, total=${parsed.total}`, JSON.stringify(parsed.onsite));
+
+    // Firestore REST: PATCH to upsert the document
+    const documentPath = `projects/${FIREBASE_PROJECT_ID}/databases/${FIRESTORE_DATABASE}/documents/daily_reports/${parsed.date}`;
+    const apiUrl = `https://firestore.googleapis.com/v1/${documentPath}?key=${FIREBASE_API_KEY}`;
+
+    const payload = {
+      fields: {
+        date:      { stringValue: parsed.date },
+        notes:     { stringValue: parsed.notes },
+        updatedAt: { stringValue: new Date().toISOString() },
+        onsite: {
+          mapValue: {
             fields: {
-              date: { stringValue: parsed.date },
-              notes: { stringValue: parsed.notes },
-              updatedAt: { stringValue: new Date().toISOString() },
-              onsite: {
-                mapValue: {
-                  fields: {
-                    cash: { integerValue: parsed.onsite.cash },
-                    taishinCC: { integerValue: parsed.onsite.taishinCC },
-                    taishinAP: { integerValue: parsed.onsite.taishinAP },
-                    linePay: { integerValue: parsed.onsite.linePay },
-                    uber: { integerValue: parsed.onsite.uber },
-                    bankTransfer: { integerValue: parsed.onsite.bankTransfer },
-                  }
-                }
-              }
+              cash:         makeIntField(parsed.onsite.cash),
+              taishinCC:    makeIntField(parsed.onsite.taishinCC),
+              taishinAP:    makeIntField(parsed.onsite.taishinAP),
+              linePay:      makeIntField(parsed.onsite.linePay),
+              uber:         makeIntField(parsed.onsite.uber),
+              bankTransfer: makeIntField(parsed.onsite.bankTransfer),
             }
-          };
-
-          const postData = JSON.stringify(payload);
-          const urlObj = new URL(documentUrl);
-          const options = {
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'Content-Length': Buffer.byteLength(postData)
-            }
-          };
-
-          await new Promise((resolve) => {
-            const request = https.request(options, (response) => {
-              console.log('Firestore REST response status:', response.statusCode);
-              let responseBody = '';
-              response.on('data', chunk => responseBody += chunk);
-              response.on('end', () => {
-                console.log('Firestore response body:', responseBody);
-                resolve();
-              });
-            });
-            request.on('error', (err) => {
-              console.error('Firestore REST write error:', err);
-              resolve();
-            });
-            request.write(postData);
-            request.end();
-          });
-
-        } catch (err) {
-          console.error('Firestore REST process error:', err);
+          }
         }
       }
-    }
+    };
+
+    const postData = JSON.stringify(payload);
+    const urlObj = new URL(apiUrl);
+
+    await new Promise((resolve) => {
+      const options = {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      };
+
+      const request = https.request(options, (response) => {
+        let responseBody = '';
+        response.on('data', chunk => responseBody += chunk);
+        response.on('end', () => {
+          console.log(`🔥 Firestore PATCH status: ${response.statusCode}`);
+          if (response.statusCode !== 200) {
+            console.error('❌ Firestore error body:', responseBody);
+          } else {
+            console.log('✅ Firestore write success for', parsed.date);
+          }
+          resolve();
+        });
+      });
+      request.on('error', (err) => {
+        console.error('❌ HTTP request error:', err.message);
+        resolve();
+      });
+      request.write(postData);
+      request.end();
+    });
   }
 
   return res.status(200).json({ status: 'ok' });
