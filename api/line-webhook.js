@@ -1,10 +1,6 @@
-/* api/line-webhook.js — LINE Bot Serverless Webhook Handler */
-// 部署於 Vercel / Render / Firebase Functions 即可接收 LINE 群組訊息全自動寫入 Firestore
-
-const crypto = require('crypto');
+/* api/line-webhook.js — LINE Bot Serverless Webhook Handler with Reply */
 const https = require('https');
 
-// 貼上您的 Firebase Config projectId
 const FIREBASE_PROJECT_ID = 'reveune-912d3';
 const FIRESTORE_DATABASE = 'revenue';
 
@@ -55,7 +51,6 @@ function parseLineMessage(text) {
   };
 }
 
-// Handler Functions for Vercel / Express
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(200).send('LINE Webhook Endpoint is Running');
@@ -64,12 +59,12 @@ module.exports = async function handler(req, res) {
   const events = req.body?.events || [];
   for (const event of events) {
     if (event.type === 'message' && event.message.type === 'text') {
-      const parsed = parseLineMessage(event.message.text);
+      const text = event.message.text;
+      const parsed = parseLineMessage(text);
+
       if (parsed && parsed.total > 0) {
-        // Direct write to Firestore REST API (revenue database)
         try {
           const documentUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/${FIRESTORE_DATABASE}/documents/daily_reports/${parsed.date}`;
-          // Payload formatting for Firestore REST API
           const payload = {
             fields: {
               date: { stringValue: parsed.date },
@@ -90,7 +85,6 @@ module.exports = async function handler(req, res) {
             }
           };
 
-          // Post request to Firestore
           const postData = JSON.stringify(payload);
           const urlObj = new URL(documentUrl);
           const options = {
