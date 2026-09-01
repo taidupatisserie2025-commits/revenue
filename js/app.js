@@ -342,6 +342,7 @@ window.App = (function () {
         <div class="page-title">${existing ? '✎ 編輯報表' : '＋ 新增報表'}</div>
         <div class="page-subtitle">${U.fmt(date)}${U.fmtWeekday(date)}</div>
       </div>
+      <button type="button" class="btn btn-ghost" onclick="App.openParseLineModal()">📋 貼上 LINE 簡訊解析</button>
     </div>
 
     <form id="daily-form" onsubmit="App.saveDailyForm(event)">
@@ -485,6 +486,46 @@ window.App = (function () {
 
     toast('報表已儲存', 'success');
     navigate('daily');
+  }
+
+  function openParseLineModal() {
+    openModal('📋 貼上 LINE 營業額簡訊自動解析', `
+      <div style="font-size:12px; color:var(--text2); margin-bottom:10px; line-height:1.5">
+        請將 LINE 群組收到的日結簡訊內容貼入下方，系統將自動提取日期、現金、信用卡、LinePay、Uber 等金額：
+      </div>
+      <div class="form-group" style="margin-bottom:14px">
+        <textarea id="line-report-raw-text" class="form-input" rows="6" placeholder="例如：\n08/31 營業額回報\n現金：12,500\n台新信用卡：8,400\nApple Pay：3,200\nLinePay：15,600\nUber Eats：4,200\n銀行轉帳：0"></textarea>
+      </div>
+      <div class="row-end">
+        <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="App.doParseLineReportText()">⚡ 解析並帶入表單</button>
+      </div>
+    `);
+  }
+
+  function doParseLineReportText() {
+    const raw = U.el('line-report-raw-text')?.value;
+    if (!raw) return toast('請先貼入 LINE 訊息內容', 'error');
+    const parsed = U.parseLineReportText(raw);
+    if (!parsed || parsed.parsedCount === 0) {
+      return toast('無法辨識金額欄位，請確認簡訊包含如「現金：12000」之格式', 'error');
+    }
+
+    const form = U.el('daily-form');
+    if (form) {
+      if (parsed.date && form.elements['dateInput']) form.elements['dateInput'].value = parsed.date;
+      if (form.elements['cash']) form.elements['cash'].value = parsed.onsite.cash || '';
+      if (form.elements['taishinCC']) form.elements['taishinCC'].value = parsed.onsite.taishinCC || '';
+      if (form.elements['taishinAP']) form.elements['taishinAP'].value = parsed.onsite.taishinAP || '';
+      if (form.elements['linePay']) form.elements['linePay'].value = parsed.onsite.linePay || '';
+      if (form.elements['bankTransfer']) form.elements['bankTransfer'].value = parsed.onsite.bankTransfer || '';
+      if (form.elements['uber']) form.elements['uber'].value = parsed.onsite.uber || '';
+
+      form.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    closeModal();
+    toast(`⚡ 成功解析帶入 ${parsed.parsedCount} 項金額資料！`, 'success');
   }
 
   function deleteDaily(date) {
@@ -2036,7 +2077,7 @@ window.App = (function () {
   return {
     navigate, closeModal, openModal, toast, refreshCurrentPage,
     // daily
-    saveDailyForm, deleteDaily,
+    saveDailyForm, deleteDaily, openParseLineModal, doParseLineReportText,
     // linepay onsite
     confirmLinepay, doConfirmLinepay,
     confirmLinepayBatch, doConfirmLinepayBatch, deleteLinepayBatch,

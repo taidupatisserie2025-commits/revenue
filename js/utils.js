@@ -324,12 +324,65 @@ window.AppUtils = (function () {
     return '<span class="badge badge-warning">待撥款</span>';
   }
 
+  /* Parse LINE Group Sales Report Text (Example A Format) */
+  function parseLineReportText(text) {
+    if (!text || typeof text !== 'string') return null;
+    
+    const result = {
+      date: today(),
+      onsite: {
+        cash: 0,
+        taishinCC: 0,
+        taishinAP: 0,
+        linePay: 0,
+        bankTransfer: 0,
+        uber: 0,
+      },
+      parsedCount: 0
+    };
+
+    // 1. Try extracting date (e.g., 08/31, 8.31, 8月31日, 2026-08-31)
+    const dateMatch = text.match(/(?:20\d{2}[\/\.-])?(\d{1,2})[\/\.月-](\d{1,2})/);
+    if (dateMatch) {
+      const year = new Date().getFullYear();
+      const m = String(dateMatch[1]).padStart(2, '0');
+      const d = String(dateMatch[2]).padStart(2, '0');
+      result.date = `${year}-${m}-${d}`;
+    }
+
+    // Helper to extract amount by pattern
+    function extractNum(patterns) {
+      for (const pattern of patterns) {
+        const regex = new RegExp(`${pattern}\\s*[:：\\s=]*([\\-−]?[0-9,]+)`, 'i');
+        const match = text.match(regex);
+        if (match) {
+          const rawNum = match[1].replace(/,/g, '').replace('−', '-');
+          const num = Number(rawNum);
+          if (!isNaN(num)) {
+            result.parsedCount++;
+            return num;
+          }
+        }
+      }
+      return 0;
+    }
+
+    result.onsite.cash = extractNum(['現金', 'cash', '現場現金']);
+    result.onsite.taishinCC = extractNum(['台新信用卡', '信用卡', '刷卡']);
+    result.onsite.taishinAP = extractNum(['Apple\\s*Pay', 'AP', 'ApplePay']);
+    result.onsite.linePay = extractNum(['LinePay', 'Line\\s*Pay', 'LP', 'LINE\\s*PAY']);
+    result.onsite.uber = extractNum(['Uber\\s*Eats', 'UberEats', 'Uber']);
+    result.onsite.bankTransfer = extractNum(['銀行轉帳', '轉帳', '匯款']);
+
+    return result;
+  }
+
   return {
     today, fmt, fmtShort, fmtWeekday, fmtDatetime,
     isWeekend, isHoliday, isBusinessDay, addBusinessDays,
     getWeekBounds, fmtWeek,
     money, money1, moneySign,
-    parseCyberbizExcel,
+    parseCyberbizExcel, parseLineReportText,
     el, setInner, escHtml, statusBadge,
   };
 })();
