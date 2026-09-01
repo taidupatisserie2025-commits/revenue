@@ -52,4 +52,31 @@ window.AppConfig = {
     '2026-09-17', // Mid-Autumn (TBC)
     '2026-10-09','2026-10-10',
   ]),
+
+  // Firebase Config
+  FIREBASE_CONFIG: {
+    apiKey: "AIzaSyAKvG8VbEykx507zX9TlswHRWm8frJuFBM",
+    authDomain: "reveune-912d3.firebaseapp.com",
+    projectId: "reveune-912d3",
+    storageBucket: "reveune-912d3.firebasestorage.app",
+    messagingSenderId: "962642364275",
+    appId: "1:962642364275:web:d9f206941bf44be6646706",
+    measurementId: "G-9Q5PBG25R4"
+  }
 };
+
+// Initialize Firebase & Firestore
+(function initFirebase() {
+  if (typeof firebase !== 'undefined' && window.AppConfig.FIREBASE_CONFIG?.apiKey) {
+    try {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(window.AppConfig.FIREBASE_CONFIG);
+      }
+      window.db = firebase.firestore();
+      // Enable offline persistence
+      window.db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+    } catch (e) {
+      console.warn('Firebase init warning:', e);
+    }
+  }
+})();

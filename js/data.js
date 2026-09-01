@@ -18,7 +18,108 @@ window.AppData = (function () {
 
   function save(key, data) {
     localStorage.setItem(key, JSON.stringify(data));
+    saveToFirebase(key, data);
   }
+
+  function saveToFirebase(key, data) {
+    if (window.db) {
+      window.db.collection('app_data').doc(key).set({
+        data: data,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).then(() => {
+        updateCloudStatus(true);
+      }).catch(err => {
+        console.warn('Firebase save warning:', err);
+        updateCloudStatus(false, err.message);
+      });
+    }
+  }
+
+  function updateCloudStatus(isOnline, msg) {
+    const dot = document.getElementById('cloud-status-dot');
+    const text = document.getElementById('cloud-status-text');
+    if (dot && text) {
+      if (isOnline) {
+        dot.style.background = 'var(--green)';
+        text.textContent = '雲端連線正常';
+      } else {
+        dot.style.background = 'var(--amber)';
+        text.textContent = msg || '雲端資料庫連結中...';
+      }
+    }
+  }
+
+  async function syncToCloud() {
+    if (!window.db) return AppUtils.toast('Firebase 尚未初始化，請確認網路與設定', 'error');
+    AppUtils.toast('正在將全量資料上傳至 Firebase 雲端…', 'info');
+    try {
+      const keys = Object.values(K);
+      for (const k of keys) {
+        const localData = load(k);
+        const localOne = loadOne(k);
+        const val = (localData && localData.length > 0) ? localData : (localOne || localData);
+        if (val) {
+          await window.db.collection('app_data').doc(k).set({
+            data: val,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      }
+      updateCloudStatus(true);
+      AppUtils.toast('全量資料成功同步至 Firebase 雲端！', 'success');
+    } catch (err) {
+      console.error(err);
+      AppUtils.toast('上傳至 Firebase 失敗: ' + err.message, 'error');
+    }
+  }
+
+  async function syncFromCloud() {
+    if (!window.db) return AppUtils.toast('Firebase 尚未初始化，請確認網路與設定', 'error');
+    AppUtils.toast('正在從 Firebase 下載最新雲端數據…', 'info');
+    try {
+      const snapshot = await window.db.collection('app_data').get();
+      if (snapshot.empty) {
+        AppUtils.toast('Firebase 雲端目前無任何備份資料', 'info');
+        return;
+      }
+      snapshot.forEach(doc => {
+        const key = doc.id;
+        const val = doc.data()?.data;
+        if (val) {
+          localStorage.setItem(key, JSON.stringify(val));
+        }
+      });
+      updateCloudStatus(true);
+      AppUtils.toast('雲端數據已成功覆蓋並更新至本地！', 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) {
+      console.error(err);
+      AppUtils.toast('從 Firebase 下載失敗: ' + err.message, 'error');
+    }
+  }
+
+  // Cloud Firestore listener init
+  setTimeout(() => {
+    if (window.db) {
+      updateCloudStatus(true);
+      window.db.collection('app_data').onSnapshot(snapshot => {
+        snapshot.docChanges().forEach(change => {
+          if (change.type === 'modified') {
+            const key = change.doc.id;
+            const val = change.doc.data()?.data;
+            if (val) {
+              localStorage.setItem(key, JSON.stringify(val));
+            }
+          }
+        });
+      }, err => {
+        console.warn('Firestore snapshot error:', err);
+        updateCloudStatus(false, err.message);
+      });
+    } else {
+      updateCloudStatus(false, '未檢測到 Firebase 實體');
+    }
+  }, 1000);
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -278,5 +379,5 @@ window.AppData = (function () {
     save(s) { save(K.SETTINGS, s); },
   };
 
-  return { Daily, Linepay, LinepayBatches, Taishin, Uber, Cash, Transfer, Cyberbiz, Settings };
+  return { Daily, Linepay, LinepayBatches, Taishin, Uber, Cash, Transfer, Cyberbiz, Settings, syncToCloud, syncFromCloud };
 })();
