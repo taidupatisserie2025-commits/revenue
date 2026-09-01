@@ -1,6 +1,18 @@
-/* data.js — LocalStorage CRUD layer */
+/* data.js — LocalStorage & Cloud Firestore Instant Sync CRUD layer */
 window.AppData = (function () {
   const K = AppConfig.KEYS;
+
+  const COLLECTION_MAP = {
+    [K.DAILY]: 'daily_reports',
+    [K.LINEPAY]: 'linepay_payouts',
+    [K.LINEPAY_BATCHES]: 'linepay_batches',
+    [K.TAISHIN]: 'taishin_payouts',
+    [K.UBER]: 'uber_weeks',
+    [K.CASH]: 'cash_closes',
+    [K.TRANSFER]: 'transfers',
+    [K.CYBERBIZ]: 'cyberbiz_periods',
+    [K.SETTINGS]: 'app_settings',
+  };
 
   function load(key) {
     try {
@@ -18,20 +30,33 @@ window.AppData = (function () {
 
   function save(key, data) {
     localStorage.setItem(key, JSON.stringify(data));
-    saveToFirebase(key, data);
   }
 
-  function saveToFirebase(key, data) {
-    if (window.db) {
-      window.db.collection('app_data').doc(key).set({
-        data: data,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true }).then(() => {
-        updateCloudStatus(true);
-      }).catch(err => {
-        console.warn('Firebase save warning:', err);
-        updateCloudStatus(false, err.message);
-      });
+  function getDocId(key, item) {
+    if (!item) return 'general';
+    return item.date || item.id || item.weekStart || 'general';
+  }
+
+  // Instant Item-level Firestore Write
+  function writeDoc(key, item) {
+    if (!window.db || !item) return;
+    const collectionName = COLLECTION_MAP[key];
+    const docId = getDocId(key, item);
+    if (collectionName && docId) {
+      window.db.collection(collectionName).doc(docId).set(item, { merge: true })
+        .then(() => updateCloudStatus(true))
+        .catch(err => console.warn('Instant Firestore write warning:', err));
+    }
+  }
+
+  // Instant Item-level Firestore Delete
+  function deleteDoc(key, docId) {
+    if (!window.db || !docId) return;
+    const collectionName = COLLECTION_MAP[key];
+    if (collectionName) {
+      window.db.collection(collectionName).doc(docId).delete()
+        .then(() => updateCloudStatus(true))
+        .catch(err => console.warn('Instant Firestore delete warning:', err));
     }
   }
 
@@ -41,7 +66,7 @@ window.AppData = (function () {
     if (dot && text) {
       if (isOnline) {
         dot.style.background = 'var(--green)';
-        text.textContent = '雲端連線正常';
+        text.textContent = '雲端連線正常 (即時寫入)';
       } else {
         dot.style.background = 'var(--amber)';
         text.textContent = msg || '雲端資料庫連結中...';
@@ -55,14 +80,17 @@ window.AppData = (function () {
     try {
       const keys = Object.values(K);
       for (const k of keys) {
+        const collectionName = COLLECTION_MAP[k];
+        if (!collectionName) continue;
         const localData = load(k);
         const localOne = loadOne(k);
-        const val = (localData && localData.length > 0) ? localData : (localOne || localData);
-        if (val) {
-          await window.db.collection('app_data').doc(k).set({
-            data: val,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
+        if (Array.isArray(localData) && localData.length > 0) {
+          for (const item of localData) {
+            const docId = getDocId(k, item);
+            await window.db.collection(collectionName).doc(docId).set(item, { merge: true });
+          }
+        } else if (localOne) {
+          await window.db.collection(collectionName).doc('general').set(localOne, { merge: true });
         }
       }
       updateCloudStatus(true);
@@ -77,18 +105,23 @@ window.AppData = (function () {
     if (!window.db) return AppUtils.toast('Firebase 尚未初始化，請確認網路與設定', 'error');
     AppUtils.toast('正在從 Firebase 下載最新雲端數據…', 'info');
     try {
-      const snapshot = await window.db.collection('app_data').get();
-      if (snapshot.empty) {
-        AppUtils.toast('Firebase 雲端目前無任何備份資料', 'info');
-        return;
-      }
-      snapshot.forEach(doc => {
-        const key = doc.id;
-        const val = doc.data()?.data;
-        if (val) {
-          localStorage.setItem(key, JSON.stringify(val));
+      const keys = Object.values(K);
+      for (const k of keys) {
+        const collectionName = COLLECTION_MAP[k];
+        if (!collectionName) continue;
+        const snapshot = await window.db.collection(collectionName).get();
+        if (!snapshot.empty) {
+          if (k === K.SETTINGS) {
+            snapshot.forEach(doc => {
+              if (doc.id === 'general') localStorage.setItem(k, JSON.stringify(doc.data()));
+            });
+          } else {
+            const list = [];
+            snapshot.forEach(doc => list.push(doc.data()));
+            localStorage.setItem(k, JSON.stringify(list));
+          }
         }
-      });
+      }
       updateCloudStatus(true);
       AppUtils.toast('雲端數據已成功覆蓋並更新至本地！', 'success');
       setTimeout(() => location.reload(), 800);
@@ -98,25 +131,50 @@ window.AppData = (function () {
     }
   }
 
-  // Cloud Firestore listener init
+  // Real-time Firestore Listeners for Multi-Device Live Sync
+  let isListenerActive = false;
   setTimeout(() => {
-    if (window.db) {
+    if (window.db && !isListenerActive) {
+      isListenerActive = true;
       updateCloudStatus(true);
-      window.db.collection('app_data').onSnapshot(snapshot => {
-        snapshot.docChanges().forEach(change => {
-          if (change.type === 'modified') {
-            const key = change.doc.id;
-            const val = change.doc.data()?.data;
-            if (val) {
-              localStorage.setItem(key, JSON.stringify(val));
+
+      Object.keys(COLLECTION_MAP).forEach(key => {
+        const collectionName = COLLECTION_MAP[key];
+        window.db.collection(collectionName).onSnapshot(snapshot => {
+          let hasChange = false;
+          snapshot.docChanges().forEach(change => {
+            const docData = change.doc.data();
+            const docId = change.doc.id;
+
+            if (key === K.SETTINGS) {
+              if (change.type !== 'removed') {
+                localStorage.setItem(key, JSON.stringify(docData));
+                hasChange = true;
+              }
+            } else {
+              let currentList = load(key);
+              if (change.type === 'added' || change.type === 'modified') {
+                const idx = currentList.findIndex(item => getDocId(key, item) === docId);
+                if (idx >= 0) { currentList[idx] = docData; }
+                else { currentList.push(docData); }
+                hasChange = true;
+              } else if (change.type === 'removed') {
+                currentList = currentList.filter(item => getDocId(key, item) !== docId);
+                hasChange = true;
+              }
+              localStorage.setItem(key, JSON.stringify(currentList));
             }
+          });
+
+          if (hasChange && window.App && typeof window.App.refreshCurrentPage === 'function') {
+            window.App.refreshCurrentPage();
           }
+        }, err => {
+          console.warn(`Firestore snapshot warning [${collectionName}]:`, err);
+          updateCloudStatus(false, err.message);
         });
-      }, err => {
-        console.warn('Firestore snapshot error:', err);
-        updateCloudStatus(false, err.message);
       });
-    } else {
+    } else if (!window.db) {
       updateCloudStatus(false, '未檢測到 Firebase 實體');
     }
   }, 1000);
@@ -133,16 +191,21 @@ window.AppData = (function () {
       const all = load(K.DAILY);
       const idx = all.findIndex(r => r.date === report.date);
       const now = new Date().toISOString();
+      let target;
       if (idx >= 0) {
-        all[idx] = { ...all[idx], ...report, updatedAt: now };
+        target = { ...all[idx], ...report, updatedAt: now };
+        all[idx] = target;
       } else {
-        all.push({ ...report, createdAt: now, updatedAt: now });
+        target = { ...report, createdAt: now, updatedAt: now };
+        all.push(target);
       }
       save(K.DAILY, all);
-      return report;
+      writeDoc(K.DAILY, target);
+      return target;
     },
     delete(date) {
       save(K.DAILY, load(K.DAILY).filter(r => r.date !== date));
+      deleteDoc(K.DAILY, date);
     },
   };
 
@@ -153,9 +216,11 @@ window.AppData = (function () {
     upsert(payout) {
       const all = load(K.LINEPAY);
       const idx = all.findIndex(r => r.date === payout.date);
-      if (idx >= 0) { all[idx] = { ...all[idx], ...payout }; }
-      else { all.push(payout); }
+      let target;
+      if (idx >= 0) { target = { ...all[idx], ...payout }; all[idx] = target; }
+      else { target = payout; all.push(target); }
       save(K.LINEPAY, all);
+      writeDoc(K.LINEPAY, target);
     },
     confirm(date, actualAmount, actualDate, batchId) {
       const all = load(K.LINEPAY);
@@ -166,6 +231,7 @@ window.AppData = (function () {
         all[idx].status = 'confirmed';
         all[idx].payoutBatchId = batchId || null;
         save(K.LINEPAY, all);
+        writeDoc(K.LINEPAY, all[idx]);
       }
     },
     unconfirm(date) {
@@ -177,10 +243,12 @@ window.AppData = (function () {
         all[idx].status = 'pending';
         all[idx].payoutBatchId = null;
         save(K.LINEPAY, all);
+        writeDoc(K.LINEPAY, all[idx]);
       }
     },
     delete(date) {
       save(K.LINEPAY, load(K.LINEPAY).filter(r => r.date !== date));
+      deleteDoc(K.LINEPAY, date);
     },
   };
 
@@ -195,12 +263,15 @@ window.AppData = (function () {
     upsert(batch) {
       const all = load(K.LINEPAY_BATCHES);
       const idx = all.findIndex(b => b.id === batch.id);
-      if (idx >= 0) { all[idx] = { ...all[idx], ...batch }; }
-      else { all.push(batch); }
+      let target;
+      if (idx >= 0) { target = { ...all[idx], ...batch }; all[idx] = target; }
+      else { target = batch; all.push(target); }
       save(K.LINEPAY_BATCHES, all);
+      writeDoc(K.LINEPAY_BATCHES, target);
     },
     delete(id) {
       save(K.LINEPAY_BATCHES, load(K.LINEPAY_BATCHES).filter(b => b.id !== id));
+      deleteDoc(K.LINEPAY_BATCHES, id);
     }
   };
 
@@ -211,9 +282,11 @@ window.AppData = (function () {
     upsert(payout) {
       const all = load(K.TAISHIN);
       const idx = all.findIndex(r => r.date === payout.date);
-      if (idx >= 0) { all[idx] = { ...all[idx], ...payout }; }
-      else { all.push(payout); }
+      let target;
+      if (idx >= 0) { target = { ...all[idx], ...payout }; all[idx] = target; }
+      else { target = payout; all.push(target); }
       save(K.TAISHIN, all);
+      writeDoc(K.TAISHIN, target);
     },
     confirm(date, amount) {
       const all = load(K.TAISHIN);
@@ -223,10 +296,12 @@ window.AppData = (function () {
         all[idx].actualDate = AppUtils.today();
         all[idx].status = Math.abs(amount - all[idx].totalAmount) < 1 ? 'confirmed' : 'discrepancy';
         save(K.TAISHIN, all);
+        writeDoc(K.TAISHIN, all[idx]);
       }
     },
     delete(date) {
       save(K.TAISHIN, load(K.TAISHIN).filter(r => r.date !== date));
+      deleteDoc(K.TAISHIN, date);
     },
   };
 
@@ -242,7 +317,7 @@ window.AppData = (function () {
       const all = load(K.UBER);
       const idx = all.findIndex(w => w.weekStart === weekStart);
       if (idx < 0) {
-        all.push({
+        const item = {
           id: 'uber_' + weekStart,
           weekStart, weekEnd,
           dailyOrders: [],
@@ -253,8 +328,10 @@ window.AppData = (function () {
           payoutDate: null,
           status: 'pending',
           notes: '',
-        });
+        };
+        all.push(item);
         save(K.UBER, all);
+        writeDoc(K.UBER, item);
       }
     },
     addDayAmount(date, amount) {
@@ -270,6 +347,7 @@ window.AppData = (function () {
         const rate = all[idx].commissionRate;
         all[idx].estimatedPayout = Math.round(all[idx].totalOrderAmount * (1 - rate));
         save(K.UBER, all);
+        writeDoc(K.UBER, all[idx]);
       }
     },
     confirmPayout(id, amount, date, rate, notes) {
@@ -283,10 +361,12 @@ window.AppData = (function () {
         all[idx].estimatedPayout = Math.round(all[idx].totalOrderAmount * (1 - rate));
         all[idx].status = 'confirmed';
         save(K.UBER, all);
+        writeDoc(K.UBER, all[idx]);
       }
     },
     delete(id) {
       save(K.UBER, load(K.UBER).filter(w => w.id !== id));
+      deleteDoc(K.UBER, id);
     },
   };
 
@@ -297,12 +377,15 @@ window.AppData = (function () {
     upsert(close) {
       const all = load(K.CASH);
       const idx = all.findIndex(r => r.date === close.date);
-      if (idx >= 0) { all[idx] = { ...all[idx], ...close }; }
-      else { all.push(close); }
+      let target;
+      if (idx >= 0) { target = { ...all[idx], ...close }; all[idx] = target; }
+      else { target = close; all.push(target); }
       save(K.CASH, all);
+      writeDoc(K.CASH, target);
     },
     delete(date) {
       save(K.CASH, load(K.CASH).filter(r => r.date !== date));
+      deleteDoc(K.CASH, date);
     },
   };
 
@@ -312,8 +395,10 @@ window.AppData = (function () {
     getById(id) { return load(K.TRANSFER).find(t => t.id === id) || null; },
     add(t) {
       const all = load(K.TRANSFER);
-      all.push({ ...t, id: uid(), status: 'pending', createdAt: new Date().toISOString() });
+      const target = { ...t, id: uid(), status: 'pending', createdAt: new Date().toISOString() };
+      all.push(target);
       save(K.TRANSFER, all);
+      writeDoc(K.TRANSFER, target);
     },
     confirm(id, amount, date) {
       const all = load(K.TRANSFER);
@@ -323,12 +408,13 @@ window.AppData = (function () {
         all[idx].actualDate = date;
         all[idx].status = 'received';
         save(K.TRANSFER, all);
+        writeDoc(K.TRANSFER, all[idx]);
       }
     },
     delete(id) {
       save(K.TRANSFER, load(K.TRANSFER).filter(t => t.id !== id));
+      deleteDoc(K.TRANSFER, id);
     },
-    // mark overdue based on expected date
     refreshStatus() {
       const all = load(K.TRANSFER);
       const today = AppUtils.today();
@@ -336,6 +422,7 @@ window.AppData = (function () {
       all.forEach(t => {
         if (t.status === 'pending' && t.expectedDate < today) {
           t.status = 'overdue'; changed = true;
+          writeDoc(K.TRANSFER, t);
         }
       });
       if (changed) save(K.TRANSFER, all);
@@ -349,9 +436,11 @@ window.AppData = (function () {
     upsert(period) {
       const all = load(K.CYBERBIZ);
       const idx = all.findIndex(p => p.id === period.id);
-      if (idx >= 0) { all[idx] = { ...all[idx], ...period }; }
-      else { all.push(period); }
+      let target;
+      if (idx >= 0) { target = { ...all[idx], ...period }; all[idx] = target; }
+      else { target = period; all.push(period); }
       save(K.CYBERBIZ, all);
+      writeDoc(K.CYBERBIZ, target);
     },
     confirmPayout(id, amount, date) {
       const all = load(K.CYBERBIZ);
@@ -361,10 +450,12 @@ window.AppData = (function () {
         all[idx].actualPayoutDate = date;
         all[idx].payoutStatus = 'received';
         save(K.CYBERBIZ, all);
+        writeDoc(K.CYBERBIZ, all[idx]);
       }
     },
     delete(id) {
       save(K.CYBERBIZ, load(K.CYBERBIZ).filter(p => p.id !== id));
+      deleteDoc(K.CYBERBIZ, id);
     },
   };
 
@@ -376,7 +467,10 @@ window.AppData = (function () {
         uberPayoutDay: 'thursday', // default: Thursday
       };
     },
-    save(s) { save(K.SETTINGS, s); },
+    save(s) {
+      save(K.SETTINGS, s);
+      writeDoc(K.SETTINGS, s);
+    },
   };
 
   return { Daily, Linepay, LinepayBatches, Taishin, Uber, Cash, Transfer, Cyberbiz, Settings, syncToCloud, syncFromCloud };

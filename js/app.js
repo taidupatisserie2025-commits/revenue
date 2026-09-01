@@ -21,6 +21,10 @@ window.App = (function () {
     renderPage(page, rest.join('/'));
   }
 
+  function refreshCurrentPage() {
+    handleRoute();
+  }
+
   function updateNav(page) {
     document.querySelectorAll('.nav-item').forEach(el => {
       el.classList.toggle('active', el.dataset.page === page);
@@ -1994,7 +1998,7 @@ window.App = (function () {
 
   /* Public API */
   return {
-    navigate, closeModal, openModal, toast,
+    navigate, closeModal, openModal, toast, refreshCurrentPage,
     // daily
     saveDailyForm, deleteDaily,
     // linepay onsite
