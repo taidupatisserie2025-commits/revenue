@@ -138,11 +138,50 @@ window.AppData = (function () {
     }
   }
 
+  // Auto-sync from Firestore on page load (fixes Safari WebChannel onSnapshot failure)
+  async function autoSyncFromCloud() {
+    if (!window.db) return;
+    try {
+      const keys = Object.values(K);
+      for (const k of keys) {
+        const collectionName = COLLECTION_MAP[k];
+        if (!collectionName) continue;
+        const snapshot = await window.db.collection(collectionName).get();
+        if (!snapshot.empty) {
+          if (k === K.SETTINGS) {
+            snapshot.forEach(doc => {
+              if (doc.id === 'general') localStorage.setItem(k, JSON.stringify(doc.data()));
+            });
+          } else {
+            const cloudDocs = [];
+            const cloudIds = new Set();
+            snapshot.forEach(doc => { cloudDocs.push(doc.data()); cloudIds.add(doc.id); });
+            // Merge: Firestore wins + keep local-only docs
+            const localList = load(k) || [];
+            const localOnly = localList.filter(item => { const id = getDocId(k, item); return id && !cloudIds.has(id); });
+            const merged = [...cloudDocs, ...localOnly];
+            localStorage.setItem(k, JSON.stringify(merged));
+            // Auto-heal: push local-only docs to cloud
+            for (const item of localOnly) { writeDoc(k, item); }
+          }
+        }
+      }
+      updateCloudStatus(true);
+      if (window.App && typeof window.App.refreshCurrentPage === 'function') {
+        window.App.refreshCurrentPage();
+      }
+    } catch (err) {
+      console.warn('Auto sync from cloud failed:', err.message);
+    }
+  }
+
   // Real-time Firestore Listeners for Multi-Device Live Sync
   let isListenerActive = false;
   setTimeout(() => {
     if (window.db && !isListenerActive) {
       isListenerActive = true;
+      // First: do a full pull from Firestore to get any new data immediately
+      autoSyncFromCloud();
       updateCloudStatus(true);
 
       Object.keys(COLLECTION_MAP).forEach(key => {
