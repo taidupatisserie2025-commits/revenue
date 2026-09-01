@@ -151,15 +151,10 @@ window.AppData = (function () {
 
         window.db.collection(collectionName).onSnapshot(snapshot => {
           let hasChange = false;
-          const localList = load(key);
+          let currentList = load(key) || [];
 
-          // Auto-heal: If local history is richer than fresh cloud DB on first load, push local items to Firestore
-          if (isInitialLoad && Array.isArray(localList) && localList.length > snapshot.docs.length) {
-            localList.forEach(item => {
-              writeDoc(key, item);
-            });
-          }
-          isInitialLoad = false;
+          // Map of current cloud doc IDs
+          const cloudDocIds = new Set(snapshot.docs.map(doc => doc.id));
 
           snapshot.docChanges().forEach(change => {
             const docData = change.doc.data();
@@ -171,7 +166,6 @@ window.AppData = (function () {
                 hasChange = true;
               }
             } else {
-              let currentList = load(key);
               if (change.type === 'added' || change.type === 'modified') {
                 const idx = currentList.findIndex(item => getDocId(key, item) === docId);
                 if (idx >= 0) { currentList[idx] = docData; }
@@ -181,9 +175,23 @@ window.AppData = (function () {
                 currentList = currentList.filter(item => getDocId(key, item) !== docId);
                 hasChange = true;
               }
-              localStorage.setItem(key, JSON.stringify(currentList));
             }
           });
+
+          if (key !== K.SETTINGS) {
+            localStorage.setItem(key, JSON.stringify(currentList));
+
+            // Auto-heal missing local docs to cloud ONLY if missing on cloud
+            if (isInitialLoad && Array.isArray(currentList)) {
+              currentList.forEach(item => {
+                const itemId = getDocId(key, item);
+                if (itemId && !cloudDocIds.has(itemId)) {
+                  writeDoc(key, item);
+                }
+              });
+            }
+          }
+          isInitialLoad = false;
 
           if (hasChange && window.App && typeof window.App.refreshCurrentPage === 'function') {
             window.App.refreshCurrentPage();
