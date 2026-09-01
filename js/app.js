@@ -35,7 +35,7 @@ window.App = (function () {
     const el = U.el('page-content');
     if (!el) return;
     const pages = {
-      dashboard:          renderDashboard,
+      dashboard:          () => renderDashboard(params),
       daily:              renderDailyList,
       'daily-form':       () => renderDailyForm(params),
       'linepay-onsite':   renderLinepayOnsite,
@@ -48,8 +48,8 @@ window.App = (function () {
       'cyberbiz-payments':renderCyberbizPayments,
       'cyberbiz-coins':   renderCyberbizCoins,
     };
-    const fn = pages[page] || renderDashboard;
-    el.innerHTML = `<div class="page-enter">${fn()}</div>`;
+    const fn = pages[page] || (() => renderDashboard(params));
+    el.innerHTML = `<div class="page-enter">${fn(params)}</div>`;
     setupPageEvents(page);
   }
 
@@ -82,6 +82,8 @@ window.App = (function () {
     U.el('modal-overlay').classList.add('hidden');
   }
 
+  let activeDashboardMonth = null;
+
   /* ═══════════════════════════════════════════
      PAGE: DASHBOARD
   ═══════════════════════════════════════════ */
@@ -94,13 +96,26 @@ window.App = (function () {
 
     // Month totals — 門市營業額 (from daily reports)
     const thisMonth = today.slice(0, 7);
-    const availableMonths = Array.from(new Set(reports.map(r => r.date.slice(0, 7)))).sort().reverse();
-    if (!availableMonths.includes(thisMonth)) availableMonths.unshift(thisMonth);
 
-    // Smart default: if current month has 0 reports and historical months exist, auto-select last available month
+    // Collect all unique months across all modules
+    const monthSet = new Set();
+    monthSet.add(thisMonth);
+    reports.forEach(r => { if (r.date) monthSet.add(r.date.slice(0, 7)); });
+    D.Linepay.getAll().forEach(p => { if (p.date) monthSet.add(p.date.slice(0, 7)); });
+    D.Cyberbiz.getAll().forEach(p => {
+      if (p.periodStart) monthSet.add(p.periodStart.slice(0, 7));
+      if (p.periodEnd) monthSet.add(p.periodEnd.slice(0, 7));
+    });
+    const availableMonths = Array.from(monthSet).filter(Boolean).sort().reverse();
+
+    if (targetMonth) {
+      activeDashboardMonth = targetMonth;
+    }
+
     const monthReportsCurrent = reports.filter(r => r.date.startsWith(thisMonth));
-    let displayMonth = targetMonth || (monthReportsCurrent.length === 0 && availableMonths.length > 1 ? availableMonths[1] : thisMonth);
+    let displayMonth = activeDashboardMonth || (monthReportsCurrent.length === 0 && availableMonths.length > 1 ? availableMonths[1] : thisMonth);
     if (!availableMonths.includes(displayMonth)) displayMonth = thisMonth;
+    activeDashboardMonth = displayMonth;
 
     const monthReports = reports.filter(r => r.date.startsWith(displayMonth));
     const storeMonthTotal = monthReports.reduce((s, r) => {
