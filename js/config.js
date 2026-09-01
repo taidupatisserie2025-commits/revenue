@@ -71,9 +71,16 @@ window.AppConfig = {
     try {
       const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(window.AppConfig.FIREBASE_CONFIG);
       // Connect specifically to the custom database named 'revenue'
-      window.db = firebase.firestore(app, 'revenue');
-      // Enable offline persistence
-      window.db.enablePersistence().catch(() => {});
+      try {
+        window.db = firebase.firestore(app, 'revenue');
+      } catch (err) {
+        window.db = firebase.firestore();
+      }
+
+      // Auto detect Long Polling to prevent WebChannel RPC Write Stream errors
+      if (window.db && typeof window.db.settings === 'function') {
+        window.db.settings({ experimentalAutoDetectLongPolling: true });
+      }
     } catch (e) {
       console.warn('Firebase init warning:', e);
     }
