@@ -177,74 +177,11 @@ window.AppData = (function () {
     }
   }
 
-  // Real-time Firestore Listeners for Multi-Device Live Sync
-  let isListenerActive = false;
+
+  // Start sync: initial load + poll every 30s (replaces onSnapshot which fails in Safari)
   setTimeout(() => {
-    if (window.db && !isListenerActive) {
-      isListenerActive = true;
-      // First: do a full pull from Firestore to get any new data immediately
-      autoSyncFromCloud();
-      updateCloudStatus(true);
-
-      Object.keys(COLLECTION_MAP).forEach(key => {
-        const collectionName = COLLECTION_MAP[key];
-        let isInitialLoad = true;
-
-        window.db.collection(collectionName).onSnapshot(snapshot => {
-
-          if (key === K.SETTINGS) {
-            // Settings: single document mode
-            snapshot.forEach(doc => {
-              if (doc.id === 'general') {
-                localStorage.setItem(key, JSON.stringify(doc.data()));
-              }
-            });
-            if (window.App && typeof window.App.refreshCurrentPage === 'function') {
-              window.App.refreshCurrentPage();
-            }
-            isInitialLoad = false;
-            return;
-          }
-
-          // === Full merge strategy ===
-          // 1. Get all docs currently in Firestore
-          const cloudDocs = [];
-          const cloudIds = new Set();
-          snapshot.forEach(doc => {
-            cloudDocs.push(doc.data());
-            cloudIds.add(doc.id);
-          });
-
-          // 2. Get local-only docs (exist locally but not yet in Firestore)
-          const localList = load(key) || [];
-          const localOnlyDocs = localList.filter(item => {
-            const id = getDocId(key, item);
-            return id && !cloudIds.has(id);
-          });
-
-          // 3. Merged = Firestore wins for shared docs + keep local-only
-          const merged = [...cloudDocs, ...localOnlyDocs];
-          localStorage.setItem(key, JSON.stringify(merged));
-
-          // 4. On first load: push local-only docs up to Firestore (auto-heal)
-          if (isInitialLoad) {
-            localOnlyDocs.forEach(item => writeDoc(key, item));
-          }
-          isInitialLoad = false;
-
-          // 5. Refresh UI
-          if (window.App && typeof window.App.refreshCurrentPage === 'function') {
-            window.App.refreshCurrentPage();
-          }
-
-        }, err => {
-          console.warn(`Firestore snapshot warning [${collectionName}]:`, err);
-          updateCloudStatus(false, err.message);
-        });
-      });
-    } else if (!window.db) {
-      updateCloudStatus(false, '未檢測到 Firebase 實體');
-    }
+    autoSyncFromCloud();   // immediate pull on page load
+    setInterval(autoSyncFromCloud, 30000);  // refresh every 30 seconds
   }, 1000);
 
   function uid() {
