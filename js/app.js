@@ -986,6 +986,8 @@ window.App = (function () {
       <button class="btn btn-ghost btn-sm" onclick="App.openTaishinSettings()">⚙ 設定撥款天數</button>
     </div>
 
+
+
     <div class="stat-grid">
       <div class="stat-card">
         <div class="stat-label">待撥款總額</div>
@@ -1183,39 +1185,84 @@ window.App = (function () {
      PAGE: CASH DAILY CLOSE
   ═══════════════════════════════════════════ */
   function renderCash() {
-    const closes = D.Cash.getAll();
+    const closes  = D.Cash.getAll();
     const reports = D.Daily.getAll();
 
-    const rows = closes.length ? closes.map(c => {
-      const diff = (c.actualCash||0) - (c.reportedCash||0);
-      const diffClass = diff > 0 ? 'text-green' : diff < 0 ? 'text-red' : 'text-muted';
-      return `<tr>
-        <td><strong>${U.fmt(c.date)}</strong>${U.fmtWeekday(c.date)}</td>
-        <td class="td-number">${U.money(c.reportedCash)}</td>
-        <td class="td-number">${U.money(c.actualCash)}</td>
-        <td class="td-number ${diffClass}"><strong>${diff >= 0 ? '+' : ''}${U.money(diff)}</strong></td>
-        <td class="td-muted">${c.notes || '—'}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="App.deleteCash('${c.date}')">🗑</button></td>
-      </tr>`;
-    }).join('') : `<tr><td colspan="6"><div class="empty-state" style="padding:32px"><div class="empty-icon">💵</div><div class="empty-text">尚無現金日結記錄</div></div></td></tr>`;
+    // All-time totals (cross-month cumulative)
+    const totalIncome    = reports.reduce((s, r) => s + (r.onsite?.cash || 0), 0);
+    const totalDeposited = closes.reduce((s, c) => s + (c.depositedAmount || c.actualCash || 0), 0);
+    const totalRemaining = totalIncome - totalDeposited;
 
-    // Date picker for adding close
+    // This month
+    const thisMonth = U.today().slice(0, 7);
+    const monthIncome    = reports.filter(r => r.date?.startsWith(thisMonth))
+                                  .reduce((s, r) => s + (r.onsite?.cash || 0), 0);
+    const monthDeposited = closes.filter(c => (c.depositDate || c.date)?.startsWith(thisMonth))
+                                 .reduce((s, c) => s + (c.depositedAmount || c.actualCash || 0), 0);
+
+    // Merge: pull all report dates that have cash income OR have a close record
+    const dateSet = new Set([
+      ...reports.filter(r => (r.onsite?.cash || 0) > 0).map(r => r.date),
+      ...closes.map(c => c.date)
+    ]);
+    const rows = Array.from(dateSet).sort().reverse().map(date => {
+      const report   = D.Daily.getByDate(date);
+      const close    = closes.find(c => c.date === date) || {};
+      const income   = report?.onsite?.cash || 0;
+      const dep      = close.depositedAmount ?? close.actualCash ?? null;
+      const hasDeposit = dep !== null && dep !== undefined;
+      const depDate  = close.depositDate || '';
+      return `<tr>
+        <td><strong>${U.fmt(date)}</strong>${U.fmtWeekday(date)}</td>
+        <td class="td-number">${U.money(income)}</td>
+        <td class="td-number ${hasDeposit ? (dep > 0 ? 'text-green' : 'text-muted') : 'text-muted'}">${hasDeposit ? U.money(dep) : '—'}</td>
+        <td class="td-muted">${depDate ? U.fmt(depDate) : '—'}</td>
+        <td class="td-muted">${close.notes || '—'}</td>
+        <td><div class="row" style="gap:6px">
+          <button class="btn btn-primary btn-sm" onclick="App.openDepositToBank('${date}')">🏦 存入銀行</button>
+          <button class="btn btn-danger btn-sm btn-icon" onclick="App.deleteCash('${date}')">🗑</button>
+        </div></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="6"><div class="empty-state" style="padding:32px"><div class="empty-icon">💵</div><div class="empty-text">尚無現金記錄<br><small>先填寫每日報表的現金欄位</small></div></div></td></tr>`;
+
     return `
     <div class="page-header row-between">
       <div>
         <div class="page-title">💵 現金日結</div>
-        <div class="page-subtitle">每日打烊前點算現金，核對帳面金額</div>
+        <div class="page-subtitle">追蹤每日現金收入與存入銀行，餘額跨月累積</div>
       </div>
-      <button class="btn btn-primary" onclick="App.openCashClose()">＋ 新增日結</button>
+    </div>
+
+    <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-label">本月現金收入</div>
+        <div class="stat-value">${U.money(monthIncome)}</div>
+        <div class="stat-foot">${thisMonth.replace('-','年')}月</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">本月已存入銀行</div>
+        <div class="stat-value text-green">${U.money(monthDeposited)}</div>
+        <div class="stat-foot">本月存入</div>
+      </div>
+      <div class="stat-card" style="border:1px solid var(--amber,#f59e0b)40">
+        <div class="stat-label">⚠️ 本月尚未存入</div>
+        <div class="stat-value ${monthIncome - monthDeposited > 0 ? 'text-amber' : 'text-green'}">${U.money(Math.max(0, monthIncome - monthDeposited))}</div>
+        <div class="stat-foot">本月未存</div>
+      </div>
+      <div class="stat-card" style="border:2px solid var(--primary)40">
+        <div class="stat-label">💰 現場現金餘額（跨月累積）</div>
+        <div class="stat-value ${totalRemaining > 0 ? 'text-amber' : 'text-green'}">${U.money(totalRemaining)}</div>
+        <div class="stat-foot">總收 ${U.money(totalIncome)} − 已存 ${U.money(totalDeposited)}</div>
+      </div>
     </div>
 
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th>日期</th>
-          <th>帳面現金（報表）</th>
-          <th>實際點算</th>
-          <th>差異</th>
+          <th>現金收入（報表自動帶入）</th>
+          <th>存入銀行金額</th>
+          <th>存入日期</th>
           <th>備注</th>
           <th></th>
         </tr></thead>
@@ -1224,40 +1271,86 @@ window.App = (function () {
     </div>`;
   }
 
-  function openCashClose() {
-    const today = U.today();
-    const report = D.Daily.getByDate(today);
-    const reportedCash = report?.onsite?.cash || 0;
-    openModal('新增現金日結', `
+  function openDepositToBank(date) {
+    const report  = D.Daily.getByDate(date);
+    const income  = report?.onsite?.cash || 0;
+    const existing = D.Cash.getAll().find(c => c.date === date) || {};
+    const depAmt  = existing.depositedAmount ?? existing.actualCash ?? income;
+    const depDate = existing.depositDate || U.today();
+
+    openModal('🏦 存入銀行', `
       <div class="form-grid" style="gap:14px">
         <div class="form-group">
-          <label class="form-label">日期</label>
-          <input type="date" id="cc-date" class="form-input" value="${today}" onchange="App.loadCashReported()">
+          <label class="form-label">報表日期</label>
+          <input type="date" id="dep-date" class="form-input" value="${date}" readonly style="opacity:0.7">
         </div>
         <div class="form-group">
-          <label class="form-label">帳面現金（從報表自動帶入）</label>
+          <label class="form-label">當日現金收入（報表）</label>
           <div class="input-with-prefix">
             <span class="input-prefix">NT$</span>
-            <input type="number" id="cc-reported" class="form-input input-money" value="${reportedCash}" readonly style="opacity:0.7">
+            <input type="number" id="dep-income" class="form-input input-money" value="${income}" readonly style="opacity:0.7">
           </div>
-          <div class="form-hint">來自當日每日報表的現金欄位</div>
+          <div class="form-hint">自動帶入每日報表現金欄位</div>
         </div>
         <div class="form-group">
-          <label class="form-label">實際點算金額</label>
+          <label class="form-label">存入銀行金額</label>
           <div class="input-with-prefix">
             <span class="input-prefix">NT$</span>
-            <input type="number" id="cc-actual" class="form-input input-money" placeholder="0">
+            <input type="number" id="dep-amount" class="form-input input-money" value="${depAmt}" placeholder="0" oninput="App.updateCashRemaining()">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">存入日期</label>
+          <input type="date" id="dep-depositdate" class="form-input" value="${depDate}">
+        </div>
+        <div class="form-group">
+          <div class="stat-card" style="padding:12px;background:var(--bg-tertiary,#1e293b)">
+            <div class="stat-label">現場剩餘（本次）</div>
+            <div class="stat-value" id="dep-remaining" style="font-size:1.3rem">${U.money(income - depAmt)}</div>
           </div>
         </div>
         <div class="form-group">
           <label class="form-label">備注</label>
-          <input type="text" id="cc-notes" class="form-input" placeholder="說明差異原因…">
+          <input type="text" id="dep-notes" class="form-input" value="${existing.notes || ''}" placeholder="說明備注…">
         </div>
       </div>
       <div class="row-end" style="margin-top:20px">
         <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
-        <button class="btn btn-primary" onclick="App.saveCashClose()">💾 儲存</button>
+        <button class="btn btn-primary" onclick="App.saveDepositToBank()">💾 儲存存款記錄</button>
       </div>`);
+  }
+
+  function updateCashRemaining() {
+    const income = Number(U.el('dep-income')?.value) || 0;
+    const dep    = Number(U.el('dep-amount')?.value)  || 0;
+    const el     = U.el('dep-remaining');
+    if (el) el.textContent = U.money(income - dep);
+  }
+
+  function saveDepositToBank() {
+    const date           = U.el('dep-date').value;
+    const cashIncome     = Number(U.el('dep-income').value) || 0;
+    const depositedAmount = Number(U.el('dep-amount').value) || 0;
+    const depositDate    = U.el('dep-depositdate').value;
+    const notes          = U.el('dep-notes').value;
+    D.Cash.upsert({
+      date,
+      reportedCash: cashIncome,    // backward compat
+      actualCash: depositedAmount, // backward compat
+      cashIncome,
+      depositedAmount,
+      depositDate,
+      difference: cashIncome - depositedAmount,
+      notes
+    });
+    closeModal();
+    toast('✅ 存款記錄已儲存', 'success');
+    navigate('cash');
+  }
+
+  // Keep legacy openCashClose as alias (redirects to new flow)
+  function openCashClose() {
+    openDepositToBank(U.today());
   }
 
   function loadCashReported() {
@@ -2086,7 +2179,8 @@ window.App = (function () {
     // uber
     confirmUber, doConfirmUber, deleteUberWeek,
     // cash
-    openCashClose, saveCashClose, deleteCash, loadCashReported,
+    openCashClose, openDepositToBank, saveDepositToBank, updateCashRemaining,
+    saveCashClose, deleteCash, loadCashReported,
     // transfer
     openAddTransfer, saveTransfer, confirmTransfer, doConfirmTransfer, deleteTransfer,
     // cyberbiz
