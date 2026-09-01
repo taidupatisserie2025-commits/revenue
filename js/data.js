@@ -147,8 +147,20 @@ window.AppData = (function () {
 
       Object.keys(COLLECTION_MAP).forEach(key => {
         const collectionName = COLLECTION_MAP[key];
+        let isInitialLoad = true;
+
         window.db.collection(collectionName).onSnapshot(snapshot => {
           let hasChange = false;
+          const localList = load(key);
+
+          // Auto-heal: If local history is richer than fresh cloud DB on first load, push local items to Firestore
+          if (isInitialLoad && Array.isArray(localList) && localList.length > snapshot.docs.length) {
+            localList.forEach(item => {
+              writeDoc(key, item);
+            });
+          }
+          isInitialLoad = false;
+
           snapshot.docChanges().forEach(change => {
             const docData = change.doc.data();
             const docId = change.doc.id;

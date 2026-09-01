@@ -1984,8 +1984,11 @@ window.App = (function () {
           localStorage.setItem(key, value);
           count++;
         }
-        toast(`✅ 備份還原成功！共匯入 ${count} 個項目`, 'success');
-        setTimeout(() => location.reload(), 1000);
+        toast(`✅ 備份還原成功！共匯入 ${count} 個項目，正在同步至雲端…`, 'success');
+        if (window.AppData && typeof window.AppData.syncToCloud === 'function') {
+          window.AppData.syncToCloud();
+        }
+        setTimeout(() => location.reload(), 1200);
       } catch (err) {
         toast('還原失敗：無效的 JSON 備份檔案', 'error');
       }
