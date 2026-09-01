@@ -150,52 +150,52 @@ window.AppData = (function () {
         let isInitialLoad = true;
 
         window.db.collection(collectionName).onSnapshot(snapshot => {
-          let hasChange = false;
-          let currentList = load(key) || [];
 
-          // Map of current cloud doc IDs
-          const cloudDocIds = new Set(snapshot.docs.map(doc => doc.id));
-
-          snapshot.docChanges().forEach(change => {
-            const docData = change.doc.data();
-            const docId = change.doc.id;
-
-            if (key === K.SETTINGS) {
-              if (change.type !== 'removed') {
-                localStorage.setItem(key, JSON.stringify(docData));
-                hasChange = true;
+          if (key === K.SETTINGS) {
+            // Settings: single document mode
+            snapshot.forEach(doc => {
+              if (doc.id === 'general') {
+                localStorage.setItem(key, JSON.stringify(doc.data()));
               }
-            } else {
-              if (change.type === 'added' || change.type === 'modified') {
-                const idx = currentList.findIndex(item => getDocId(key, item) === docId);
-                if (idx >= 0) { currentList[idx] = docData; }
-                else { currentList.push(docData); }
-                hasChange = true;
-              } else if (change.type === 'removed') {
-                currentList = currentList.filter(item => getDocId(key, item) !== docId);
-                hasChange = true;
-              }
+            });
+            if (window.App && typeof window.App.refreshCurrentPage === 'function') {
+              window.App.refreshCurrentPage();
             }
+            isInitialLoad = false;
+            return;
+          }
+
+          // === Full merge strategy ===
+          // 1. Get all docs currently in Firestore
+          const cloudDocs = [];
+          const cloudIds = new Set();
+          snapshot.forEach(doc => {
+            cloudDocs.push(doc.data());
+            cloudIds.add(doc.id);
           });
 
-          if (key !== K.SETTINGS) {
-            localStorage.setItem(key, JSON.stringify(currentList));
+          // 2. Get local-only docs (exist locally but not yet in Firestore)
+          const localList = load(key) || [];
+          const localOnlyDocs = localList.filter(item => {
+            const id = getDocId(key, item);
+            return id && !cloudIds.has(id);
+          });
 
-            // Auto-heal missing local docs to cloud ONLY if missing on cloud
-            if (isInitialLoad && Array.isArray(currentList)) {
-              currentList.forEach(item => {
-                const itemId = getDocId(key, item);
-                if (itemId && !cloudDocIds.has(itemId)) {
-                  writeDoc(key, item);
-                }
-              });
-            }
+          // 3. Merged = Firestore wins for shared docs + keep local-only
+          const merged = [...cloudDocs, ...localOnlyDocs];
+          localStorage.setItem(key, JSON.stringify(merged));
+
+          // 4. On first load: push local-only docs up to Firestore (auto-heal)
+          if (isInitialLoad) {
+            localOnlyDocs.forEach(item => writeDoc(key, item));
           }
           isInitialLoad = false;
 
-          if (hasChange && window.App && typeof window.App.refreshCurrentPage === 'function') {
+          // 5. Refresh UI
+          if (window.App && typeof window.App.refreshCurrentPage === 'function') {
             window.App.refreshCurrentPage();
           }
+
         }, err => {
           console.warn(`Firestore snapshot warning [${collectionName}]:`, err);
           updateCloudStatus(false, err.message);
