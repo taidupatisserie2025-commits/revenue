@@ -1,8 +1,9 @@
-/* api/line-webhook.js — LINE Bot Serverless Webhook Handler with Body Parsing Fix */
+/* api/line-webhook.js — LINE Bot Serverless Webhook Handler with Firestore API Key Auth */
 const https = require('https');
 
 const FIREBASE_PROJECT_ID = 'reveune-912d3';
 const FIRESTORE_DATABASE = 'revenue';
+const FIREBASE_API_KEY = 'AIzaSyAKvG8VbEykx507zX9TlswHRWm8frJuFBM';
 
 // 解析 LINE 訊息文字 (範例 A 格式)
 function parseLineMessage(text) {
@@ -56,7 +57,6 @@ module.exports = async function handler(req, res) {
     return res.status(200).send('LINE Webhook Endpoint is Running');
   }
 
-  // Parse body safely whether Vercel passes string or object
   let body = req.body;
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch (e) {}
@@ -75,7 +75,8 @@ module.exports = async function handler(req, res) {
 
       if (parsed && parsed.total > 0) {
         try {
-          const documentUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/${FIRESTORE_DATABASE}/documents/daily_reports/${parsed.date}`;
+          // Add API Key query param to pass Firestore REST security check
+          const documentUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/${FIRESTORE_DATABASE}/documents/daily_reports/${parsed.date}?key=${FIREBASE_API_KEY}`;
           const payload = {
             fields: {
               date: { stringValue: parsed.date },
@@ -100,7 +101,7 @@ module.exports = async function handler(req, res) {
           const urlObj = new URL(documentUrl);
           const options = {
             hostname: urlObj.hostname,
-            path: urlObj.pathname,
+            path: urlObj.pathname + urlObj.search,
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -110,11 +111,16 @@ module.exports = async function handler(req, res) {
 
           await new Promise((resolve) => {
             const request = https.request(options, (response) => {
-              console.log('Firestore write status:', response.statusCode);
-              resolve();
+              console.log('Firestore REST response status:', response.statusCode);
+              let responseBody = '';
+              response.on('data', chunk => responseBody += chunk);
+              response.on('end', () => {
+                console.log('Firestore response body:', responseBody);
+                resolve();
+              });
             });
             request.on('error', (err) => {
-              console.error('Firestore write error:', err);
+              console.error('Firestore REST write error:', err);
               resolve();
             });
             request.write(postData);
