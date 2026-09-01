@@ -85,7 +85,7 @@ window.App = (function () {
   /* ═══════════════════════════════════════════
      PAGE: DASHBOARD
   ═══════════════════════════════════════════ */
-  function renderDashboard() {
+  function renderDashboard(targetMonth) {
     D.Transfer.refreshStatus();
     const today = U.today();
     const reports = D.Daily.getAll();
@@ -94,7 +94,15 @@ window.App = (function () {
 
     // Month totals — 門市營業額 (from daily reports)
     const thisMonth = today.slice(0, 7);
-    const monthReports = reports.filter(r => r.date.startsWith(thisMonth));
+    const availableMonths = Array.from(new Set(reports.map(r => r.date.slice(0, 7)))).sort().reverse();
+    if (!availableMonths.includes(thisMonth)) availableMonths.unshift(thisMonth);
+
+    // Smart default: if current month has 0 reports and historical months exist, auto-select last available month
+    const monthReportsCurrent = reports.filter(r => r.date.startsWith(thisMonth));
+    let displayMonth = targetMonth || (monthReportsCurrent.length === 0 && availableMonths.length > 1 ? availableMonths[1] : thisMonth);
+    if (!availableMonths.includes(displayMonth)) displayMonth = thisMonth;
+
+    const monthReports = reports.filter(r => r.date.startsWith(displayMonth));
     const storeMonthTotal = monthReports.reduce((s, r) => {
       const o = r.onsite || {};
       return s + (o.cash||0) + (o.taishinCC||0) + (o.taishinAP||0) + (o.linePay||0) + (o.bankTransfer||0) + (o.uber||0);
@@ -102,21 +110,18 @@ window.App = (function () {
 
     // 官網訂單營業額 (from CyberBiz Excel uploads — sum of line pay gross + cyberpayments net per period)
     const cyberbizPeriods = D.Cyberbiz.getAll().filter(p => {
-      // Include periods that overlap with current month
-      return (p.periodStart || '').startsWith(thisMonth) || (p.periodEnd || '').startsWith(thisMonth);
+      return (p.periodStart || '').startsWith(displayMonth) || (p.periodEnd || '').startsWith(displayMonth);
     });
     let onlineOrderTotal = 0;
     cyberbizPeriods.forEach(p => {
-      // Line Pay gross total (all payment amounts from linePay sheet)
       const lp = p.linePay || {};
       const lpTotal = Object.values(lp.daily || {}).reduce((s, d) => s + (d.grossTotal || 0), 0);
-      // CyberBiz Payments net (payments + refunds, as signed amounts)
       const cp = p.cyberPayments || {};
-      const cpTotal = cp.total || 0; // includes refund offsets
+      const cpTotal = cp.total || 0;
       onlineOrderTotal += lpTotal + cpTotal;
     });
 
-    // 本月總業績 = 門市 + 官網
+    // 總業績 = 門市 + 官網
     const monthTotal = storeMonthTotal + onlineOrderTotal;
 
     // Pending LinePay
@@ -182,6 +187,8 @@ window.App = (function () {
       </tr>`;
     }).join('') : `<tr><td colspan="7"><div class="empty-state" style="padding:24px"><div class="empty-text">尚無報表資料</div></div></td></tr>`;
 
+    const isCurrentMonth = (displayMonth === thisMonth);
+
     return `
     <div class="page-header row-between">
       <div>
@@ -195,7 +202,18 @@ window.App = (function () {
 
     <!-- 業績三區 -->
     <div style="margin-bottom:20px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">📊 ${thisMonth.replace('-','年')}月 業績總覽</div>
+      <div style="font-size:12px;font-weight:700;letter-spacing:0.04em;color:var(--text2);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span>📊 ${displayMonth.replace('-','年')}月 業績總覽</span>
+          ${isCurrentMonth ? '<span class="badge badge-info" style="font-size:10px">本月</span>' : '<span class="badge badge-pending" style="font-size:10px">歷史月份</span>'}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <label style="font-size:11px;color:var(--text3);font-weight:normal">檢視月份：</label>
+          <select class="form-input form-input-sm" style="width:auto;padding:2px 8px;font-size:12px;background:var(--bg3);color:var(--text)" onchange="App.navigate('dashboard', this.value)">
+            ${availableMonths.map(m => `<option value="${m}" ${m === displayMonth ? 'selected' : ''}>${m.replace('-', '年')}月 ${m === thisMonth ? '(本月)' : ''}</option>`).join('')}
+          </select>
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
         <div class="big-stat" style="cursor:pointer;border:1.5px solid rgba(124,58,237,0.15)" onclick="App.navigate('daily')">
           <div class="big-stat-label">🏪 門市營業額</div>
@@ -208,7 +226,7 @@ window.App = (function () {
           <div class="big-stat-sub">${cyberbizPeriods.length > 0 ? `已上傳 ${cyberbizPeriods.length} 期對帳單` : '尚未上傳官網對帳單'}</div>
         </div>
         <div class="big-stat" style="border:1.5px solid rgba(99,102,241,0.25);background:var(--bg2)">
-          <div class="big-stat-label" style="color:var(--purple)">🏆 本月總業績</div>
+          <div class="big-stat-label" style="color:var(--purple)">🏆 該月總業績</div>
           <div class="big-stat-value" style="color:var(--purple);font-size:clamp(22px,3vw,32px)">${U.money(monthTotal)}</div>
           <div class="big-stat-sub">門市 + 官網合計</div>
         </div>
