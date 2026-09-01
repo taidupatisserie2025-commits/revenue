@@ -1,4 +1,4 @@
-/* api/line-webhook.js — LINE Bot Serverless Webhook Handler with Reply */
+/* api/line-webhook.js — LINE Bot Serverless Webhook Handler with Body Parsing Fix */
 const https = require('https');
 
 const FIREBASE_PROJECT_ID = 'reveune-912d3';
@@ -56,11 +56,22 @@ module.exports = async function handler(req, res) {
     return res.status(200).send('LINE Webhook Endpoint is Running');
   }
 
-  const events = req.body?.events || [];
+  // Parse body safely whether Vercel passes string or object
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch (e) {}
+  }
+
+  const events = body?.events || [];
+  console.log(`Received ${events.length} LINE events`);
+
   for (const event of events) {
-    if (event.type === 'message' && event.message.type === 'text') {
+    if (event.type === 'message' && event.message && event.message.type === 'text') {
       const text = event.message.text;
+      console.log('LINE Message text:', text);
+
       const parsed = parseLineMessage(text);
+      console.log('Parsed result:', JSON.stringify(parsed));
 
       if (parsed && parsed.total > 0) {
         try {
@@ -97,14 +108,21 @@ module.exports = async function handler(req, res) {
             }
           };
 
-          const request = https.request(options, (response) => {
-            console.log('Firestore write status:', response.statusCode);
+          await new Promise((resolve) => {
+            const request = https.request(options, (response) => {
+              console.log('Firestore write status:', response.statusCode);
+              resolve();
+            });
+            request.on('error', (err) => {
+              console.error('Firestore write error:', err);
+              resolve();
+            });
+            request.write(postData);
+            request.end();
           });
-          request.write(postData);
-          request.end();
 
         } catch (err) {
-          console.error('Firestore REST error:', err);
+          console.error('Firestore REST process error:', err);
         }
       }
     }
