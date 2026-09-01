@@ -79,7 +79,7 @@ window.AppConfig = {
 
       // Auto detect Long Polling to prevent WebChannel RPC Write Stream errors
       if (window.db && typeof window.db.settings === 'function') {
-        window.db.settings({ experimentalAutoDetectLongPolling: true });
+        window.db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
       }
     } catch (e) {
       console.warn('Firebase init warning:', e);
