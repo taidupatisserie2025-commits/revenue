@@ -577,8 +577,8 @@ window.App = (function () {
     const confirmedTotal = allBatches.reduce((s, b) => s + (b.actualNet||0), 0);
     const confirmedCount = allBatches.length;
 
-    // Calculate total hand fee discrepancy
-    const totalDiff = allBatches.reduce((s, b) => s + (b.feeAdjustment || 0), 0);
+    // Calculate total actual fees paid (from confirmed batches)
+    const totalActualFee = allBatches.reduce((s, b) => s + (b.actualFee || 0), 0);
 
     // 3. Render pending rows
     const pendingRowsList = [];
@@ -684,18 +684,16 @@ window.App = (function () {
         ・<strong>分流核對</strong>：在點擊確認撥款入帳時，分別填入網銀收到的「連家網路」和「連家電支」入帳淨額與實際扣除手續費，系統會自動在後台存檔為兩筆獨立結算紀錄。<br>
         ・<strong>手續費與日期</strong>：手續費微小四捨五入誤差會自動歸入「手續費差額」；若銀行延期入帳，可在 Modal 中自行修改實際入帳日。
       </div>
-      <div style="width:260px;min-width:240px;background:var(--bg2);border:1px solid ${totalDiff < 0 ? 'rgba(239,68,68,0.35)' : totalDiff > 0 ? 'rgba(16,185,129,0.35)' : 'var(--border)'};border-radius:var(--radius-sm);padding:14px 16px;display:flex;flex-direction:column;justify-content:center">
+      <div style="width:260px;min-width:240px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;display:flex;flex-direction:column;justify-content:center">
         <div style="font-size:12px;font-weight:600;color:var(--text2);display:flex;justify-content:space-between;align-items:center">
-          <span>⚖️ 累計手續費差額</span>
-          <span class="badge ${totalDiff === 0 ? 'badge-info' : totalDiff > 0 ? 'badge-success' : 'badge-danger'}">
-            ${totalDiff === 0 ? '無差額' : totalDiff > 0 ? '累計溢收' : '累計溢付'}
-          </span>
+          <span>💸 累積手續費</span>
+          <span class="badge badge-info">已核銷批次</span>
         </div>
-        <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0 2px;color:${totalDiff > 0 ? 'var(--green)' : totalDiff < 0 ? 'var(--red)' : 'var(--text)'}">
-          ${totalDiff === 0 ? 'NT$ 0' : U.moneySign(totalDiff)}
+        <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0 2px;color:var(--red)">
+          ${totalActualFee > 0 ? '−' : ''}${U.money(totalActualFee)}
         </div>
         <div style="font-size:11px;color:var(--text3);line-height:1.3">
-          ${totalDiff < 0 ? '⚠️ 包含撥款四捨五入累積的多扣除額' : totalDiff > 0 ? '✨ 包含撥款四捨五入多預付補回' : '✅ 撥款手續費無累積差額'}
+          ${confirmedCount > 0 ? `共 ${confirmedCount} 批次實際扣除手續費合計` : '尚無已核銷批次'}
         </div>
       </div>
     </div>
