@@ -1701,6 +1701,45 @@ window.App = (function () {
   /* ═══════════════════════════════════════════
      PAGE: CYBERBIZ LINEPAY (dedicated)
   ═══════════════════════════════════════════ */
+  function getCbLinepayBatches() {
+    let list = [];
+    try {
+      list = JSON.parse(localStorage.getItem('ta_cb_linepay_batches') || '[]');
+    } catch { list = []; }
+
+    // Legacy fallback check: convert 'cb_lp_payout_YYYY-MM-DD'
+    let migrated = false;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('cb_lp_payout_')) {
+        const payoutDate = key.replace('cb_lp_payout_', '');
+        try {
+          const item = JSON.parse(localStorage.getItem(key));
+          if (item && item.actual != null && !list.some(b => b.payoutDate === payoutDate)) {
+            list.push({
+              id: 'cb_lp_batch_' + payoutDate,
+              payoutDate,
+              actualDate: payoutDate,
+              datesCsv: payoutDate,
+              grossAmount: item.actual,
+              expectedFee: 0,
+              expectedNet: item.actual,
+              actualNet: item.actual,
+              actualFee: 0,
+              feeAdjustment: 0,
+              confirmedAt: item.confirmedAt || new Date().toISOString()
+            });
+            migrated = true;
+          }
+        } catch (e) {}
+      }
+    }
+    if (migrated) {
+      localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(list));
+    }
+    return list;
+  }
+
   function renderCyberbizLinepay() {
     const periods = D.Cyberbiz.getAll();
 
@@ -1719,14 +1758,16 @@ window.App = (function () {
       </div>`;
     }
 
-    const all = periods.map(p => {
+    const allBatches = getCbLinepayBatches();
+    const confirmedSet = new Set(allBatches.map(b => b.payoutDate));
+    const today = U.today();
+
+    // Collect all daily entries across all uploaded Cyberbiz Excel periods
+    const allDaysMap = {};
+    periods.forEach(p => {
       const lp = p.linePay || {};
       const daily = lp.daily || {};
-      const sortedDays = Object.keys(daily).sort();
-
-      // 1. Group days by payoutDate
-      const payoutGroups = {};
-      sortedDays.forEach(date => {
+      Object.keys(daily).forEach(date => {
         const d = daily[date];
         const grossTotal    = d.grossTotal || d.amount || 0;
         const canceledAmt   = d.canceledAmount || 0;
@@ -1736,10 +1777,7 @@ window.App = (function () {
         const payoutAmt     = Math.max(0, uncanceledAmt - feeAndTax);
         const payoutDate    = U.addBusinessDays(date, C.LINEPAY_BUSINESS_DAYS);
 
-        if (!payoutGroups[payoutDate]) {
-          payoutGroups[payoutDate] = [];
-        }
-        payoutGroups[payoutDate].push({
+        allDaysMap[date] = {
           date,
           count: d.count || 0,
           grossTotal,
@@ -1747,176 +1785,286 @@ window.App = (function () {
           systemAmt,
           uncanceledAmt,
           feeAndTax,
-          payoutAmt
-        });
+          payoutAmt,
+          payoutDate
+        };
       });
+    });
 
-      // 2. Calculate cumulative payout difference across confirmed batches in this period
-      let periodTotalDiff = 0;
-      let confirmedCount = 0;
-      const sortedPayoutDates = Object.keys(payoutGroups).sort();
-      const today = U.today();
+    const allDatesSorted = Object.keys(allDaysMap).sort();
 
-      sortedPayoutDates.forEach(payoutDate => {
-        const group = payoutGroups[payoutDate];
-        const combinedPayout = group.reduce((sum, item) => sum + item.payoutAmt, 0);
-        const key = 'cb_lp_payout_' + payoutDate;
-        const cbLpData = JSON.parse(localStorage.getItem(key) || 'null');
-        if (cbLpData && cbLpData.actual != null) {
-          periodTotalDiff += (cbLpData.actual - combinedPayout);
-          confirmedCount++;
+    // Group pending days by payoutDate (excluding confirmed payoutDates)
+    const pendingGroups = {};
+    let pendingDayCount = 0;
+    allDatesSorted.forEach(date => {
+      const item = allDaysMap[date];
+      if (!confirmedSet.has(item.payoutDate)) {
+        if (!pendingGroups[item.payoutDate]) pendingGroups[item.payoutDate] = [];
+        pendingGroups[item.payoutDate].push(item);
+        pendingDayCount++;
+      }
+    });
+
+    const sortedPendingPayoutDates = Object.keys(pendingGroups).sort((a,b) => b.localeCompare(a));
+
+    // Calculate Summary Stats
+    let pendingGross = 0;
+    let pendingFee = 0;
+    let pendingNet = 0;
+    sortedPendingPayoutDates.forEach(payoutDate => {
+      pendingGroups[payoutDate].forEach(item => {
+        pendingGross += item.grossTotal;
+        pendingFee += item.feeAndTax;
+        pendingNet += item.payoutAmt;
+      });
+    });
+
+    const confirmedTotal = allBatches.reduce((s, b) => s + (b.actualNet || 0), 0);
+    const confirmedCount = allBatches.length;
+    const totalActualFee = allBatches.reduce((s, b) => s + (b.actualFee || 0), 0);
+
+    // 1. Pending Table Rows
+    const pendingRowsList = [];
+    sortedPendingPayoutDates.forEach(payoutDate => {
+      const group = pendingGroups[payoutDate];
+      const groupSize = group.length;
+      const combinedGross = group.reduce((s, g) => s + g.grossTotal, 0);
+      const combinedFee   = group.reduce((s, g) => s + g.feeAndTax, 0);
+      const combinedNet   = combinedGross - combinedFee;
+      const isDue = payoutDate <= today;
+      const datesCsv = group.map(g => `${U.fmtShort(g.date)}${U.fmtWeekday(g.date)}`).join(', ');
+
+      group.forEach((item, index) => {
+        let rowHtml = `<tr>
+          <td><strong>${U.fmt(item.date)}</strong>${U.fmtWeekday(item.date)}</td>
+          <td class="td-number">${item.count} 筆</td>
+          <td class="td-number text-green">${U.money(item.grossTotal)}</td>
+          <td class="td-number ${item.canceledAmt > 0 ? 'text-red' : 'td-muted'}">${item.canceledAmt > 0 ? '−' + U.money(item.canceledAmt) : 'NT$ 0'}</td>
+          <td class="td-number">${U.money(item.systemAmt)}</td>
+          <td class="td-number text-red" title="包含 2.8% 手續費及 5% 營業稅">−${U.money(item.feeAndTax)}</td>`;
+
+        if (index === 0) {
+          rowHtml += `
+          <td rowspan="${groupSize}" class="td-number text-purple" style="font-weight:700;vertical-align:middle;background:rgba(124,58,237,0.05)">
+            ${U.money(combinedNet)}
+            ${groupSize > 1 ? `<div style="font-size:10px;color:var(--text3);font-weight:normal">(${groupSize}日加總)</div>` : ''}
+          </td>
+          <td rowspan="${groupSize}" style="vertical-align:middle">
+            <strong>${U.fmt(payoutDate)}</strong>${U.fmtWeekday(payoutDate)}
+            ${isDue ? '<div style="margin-top:2px"><span class="badge badge-pending">應到帳</span></div>' : ''}
+          </td>
+          <td rowspan="${groupSize}" style="vertical-align:middle;text-align:center">
+            <button class="btn btn-success btn-sm" onclick="App.confirmCbLinepay('${payoutDate}',${combinedGross},${combinedFee},${combinedNet},'${datesCsv}')">確認撥款入帳</button>
+          </td>`;
         }
+
+        rowHtml += `</tr>`;
+        pendingRowsList.push(rowHtml);
       });
+    });
 
-      // 3. Render table rows with merged cells for same payoutDate
-      const dayRowsList = [];
+    const pendingTableBody = pendingRowsList.join('') || `<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text3)">🎉 當前無待核對之官網 LinePay 撥款項目</td></tr>`;
 
-      sortedPayoutDates.forEach(payoutDate => {
-        const group = payoutGroups[payoutDate];
-        const groupSize = group.length;
-        const combinedPayout = group.reduce((sum, item) => sum + item.payoutAmt, 0);
-        const isDue = payoutDate <= today;
+    // 2. Confirmed Table Rows
+    const batchRows = [];
+    allBatches.slice().sort((a,b) => (b.actualDate||b.payoutDate).localeCompare(a.actualDate||a.payoutDate)).forEach(b => {
+      const diff = b.feeAdjustment || 0;
+      const diffHtml = diff === 0
+        ? `<span class="badge badge-info">無差額</span>`
+        : diff > 0
+          ? `<span class="badge badge-success" title="實際手續費少扣（少付費或溢撥）">+${U.money(diff)}</span>`
+          : `<span class="badge badge-danger" title="實際手續費多扣（多付費或折抵）">−${U.money(Math.abs(diff))}</span>`;
 
-        const datesText = group.map(g => `${U.fmtShort(g.date)}${U.fmtWeekday(g.date)}`).join(', ');
+      batchRows.push(`<tr>
+        <td><strong>${U.fmt(b.payoutDate)}</strong>${U.fmtWeekday(b.payoutDate)}</td>
+        <td><strong>${U.fmt(b.actualDate)}</strong>${U.fmtWeekday(b.actualDate)}</td>
+        <td style="font-size:12px;color:var(--purple-light)">${b.datesCsv || '—'}</td>
+        <td class="td-number text-green">${U.money(b.grossAmount)}</td>
+        <td class="td-number text-red">−${U.money(b.actualFee)}</td>
+        <td class="td-number text-purple" style="font-weight:700">${U.money(b.expectedNet)}</td>
+        <td class="td-number text-green" style="font-weight:700;background:rgba(16,185,129,0.03)">${U.money(b.actualNet)}</td>
+        <td style="text-align:center">${diffHtml}</td>
+        <td style="text-align:center">
+          <button class="btn btn-ghost btn-sm text-red" onclick="App.deleteCbLinepayBatch('${b.id}')">撤銷核銷</button>
+        </td>
+      </tr>`);
+    });
 
-        const key = 'cb_lp_payout_' + payoutDate;
-        const cbLpData = JSON.parse(localStorage.getItem(key) || 'null');
-        const status = cbLpData ? 'confirmed' : 'pending';
-
-        group.forEach((item, index) => {
-          let rowHtml = `<tr>
-            <td><strong>${U.fmt(item.date)}</strong>${U.fmtWeekday(item.date)}</td>
-            <td class="td-number">${item.count} 筆</td>
-            <td class="td-number text-green">${U.money(item.grossTotal)}</td>
-            <td class="td-number ${item.canceledAmt > 0 ? 'text-red' : 'td-muted'}">${item.canceledAmt > 0 ? '−' + U.money(item.canceledAmt) : 'NT$ 0'}</td>
-            <td class="td-number">${U.money(item.systemAmt)}</td>
-            <td class="td-number text-red" title="包含 2.8% 手續費及 5% 營業稅">−${U.money(item.feeAndTax)}</td>`;
-
-          // Merged columns for the same Payout Date
-          if (index === 0) {
-            const batchDiff = cbLpData ? (cbLpData.actual - combinedPayout) : null;
-            const diffHtml = batchDiff !== null
-              ? (batchDiff === 0
-                  ? `<span class="badge badge-info">無差額</span>`
-                  : batchDiff > 0
-                    ? `<span class="badge badge-success" title="實際多到帳（溢撥/補回）">+${U.money(batchDiff)} (溢撥)</span>`
-                    : `<span class="badge badge-danger" title="實際少到帳（負數沖銷抵扣）">−${U.money(Math.abs(batchDiff))} (沖銷)</span>`)
-              : '—';
-
-            rowHtml += `
-            <td rowspan="${groupSize}" class="td-number text-purple" style="font-weight:700;vertical-align:middle;background:rgba(124,58,237,0.05)">
-              ${U.money(combinedPayout)}
-              ${groupSize > 1 ? `<div style="font-size:10px;color:var(--text3);font-weight:normal">(${groupSize}日加總)</div>` : ''}
-            </td>
-            <td rowspan="${groupSize}" style="vertical-align:middle">
-              <strong>${U.fmt(payoutDate)}</strong>${U.fmtWeekday(payoutDate)}
-              ${isDue && status==='pending' ? '<div style="margin-top:2px"><span class="badge badge-pending">應到帳</span></div>' : ''}
-            </td>
-            <td rowspan="${groupSize}" style="vertical-align:middle">${U.statusBadge(status)}</td>
-            <td rowspan="${groupSize}" class="td-number" style="vertical-align:middle">${cbLpData ? U.money(cbLpData.actual) : '—'}</td>
-            <td rowspan="${groupSize}" style="vertical-align:middle;text-align:center">${diffHtml}</td>
-            <td rowspan="${groupSize}" style="vertical-align:middle">
-              ${status !== 'confirmed' ? `<button class="btn btn-success btn-sm" onclick="App.confirmCbLinepay('${payoutDate}',${combinedPayout},'${datesText}')">確認撥款入帳</button>` : ''}
-            </td>`;
-          }
-
-          rowHtml += `</tr>`;
-          dayRowsList.push(rowHtml);
-        });
-      });
-
-      const dayRows = dayRowsList.join('');
-
-      return `
-      <div class="week-card" style="margin-bottom:20px">
-        <div class="week-header">
-          <div>
-            <div class="week-title">📅 ${U.fmt(p.periodStart)} ～ ${U.fmt(p.periodEnd)}</div>
-          </div>
-          ${U.statusBadge(p.payoutStatus || 'pending')}
-        </div>
-
-        <div class="row-between" style="align-items:stretch;gap:14px;margin-bottom:16px">
-          <div style="flex:1;font-size:12px;color:var(--text2);padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);line-height:1.6">
-            📌 <strong>指標與跨期沖銷說明：</strong><br>
-            ・<strong>負數沖銷機制</strong>：當日取消金額大於交易額時，負數餘額會由 LinePay 於後續撥款中扣除抵扣（產生撥款差額）。<br>
-            ・<strong>同日撥款加總合併</strong>：五六日統一於週二撥款，【預估撥款金額】自動加總併欄核對。<br>
-            ・<strong style="color:var(--green)">總交易額</strong>：原始付款總額 ｜ <strong style="color:var(--red)">已取消金額</strong>：當天入帳之退款總額
-          </div>
-
-          <div style="width:260px;min-width:240px;background:var(--bg2);border:1px solid ${periodTotalDiff < 0 ? 'rgba(239,68,68,0.35)' : periodTotalDiff > 0 ? 'rgba(16,185,129,0.35)' : 'var(--border)'};border-radius:var(--radius-sm);padding:14px 16px;display:flex;flex-direction:column;justify-content:center">
-            <div style="font-size:12px;font-weight:600;color:var(--text2);display:flex;justify-content:space-between;align-items:center">
-              <span>⚖️ 當下撥款差額 / 沖銷餘額</span>
-              <span class="badge ${periodTotalDiff === 0 ? 'badge-info' : periodTotalDiff > 0 ? 'badge-success' : 'badge-danger'}">
-                ${periodTotalDiff === 0 ? '無差額' : periodTotalDiff > 0 ? '溢撥/補回' : '沖銷抵扣中'}
-              </span>
-            </div>
-            <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0 2px;color:${periodTotalDiff > 0 ? 'var(--green)' : periodTotalDiff < 0 ? 'var(--red)' : 'var(--text)'}">
-              ${periodTotalDiff === 0 ? 'NT$ 0' : U.moneySign(periodTotalDiff)}
-            </div>
-            <div style="font-size:11px;color:var(--text3);line-height:1.3">
-              ${periodTotalDiff < 0 ? '⚠️ 包含負數沖銷抵扣 / 實際少到帳' : periodTotalDiff > 0 ? '✨ 包含多預付或前期沖銷補回' : '✅ 撥款無差額或尚未確認入帳'}
-            </div>
-          </div>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>入帳日期</th>
-              <th>筆數</th>
-              <th>總交易額</th>
-              <th>已取消金額</th>
-              <th>當日系統金額</th>
-              <th>預估手續費+稅</th>
-              <th>合併撥款金額</th>
-              <th>預計撥款日(N+2)</th>
-              <th>狀態</th>
-              <th>實際入帳</th>
-              <th>撥款差額</th>
-              <th></th>
-            </tr></thead>
-            <tbody>${dayRows || '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--text3)">無資料</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>`;
-    }).join('');
+    const batchTableBody = batchRows.join('') || `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之撥款批次紀錄</td></tr>`;
 
     return `
     <div class="page-header">
       <div class="page-title">💚 官網 LinePay 對帳</div>
-      <div class="page-subtitle">同一撥款日自動加總合併核對・N+2 工作日撥款</div>
+      <div class="page-subtitle">同一預期撥款日加總合併核對・N+2 工作日撥款・自動計算實際手續費與撥款差額</div>
     </div>
-    ${all}`;
+
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat-card">
+        <div class="stat-label">待撥款總額 (日累計)</div>
+        <div class="stat-value text-amber">${U.money(pendingGross)}</div>
+        <div class="stat-foot">${pendingDayCount} 天待撥</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">預估費用</div>
+        <div class="stat-value text-red">−${U.money(pendingFee)}</div>
+        <div class="stat-foot">2.8% + 5% 營業稅</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">預估應入帳淨額</div>
+        <div class="stat-value text-purple">${U.money(pendingNet)}</div>
+        <div class="stat-foot">預期實收總額</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">已核對總入帳</div>
+        <div class="stat-value text-green">${U.money(confirmedTotal)}</div>
+        <div class="stat-foot">共核對 ${confirmedCount} 個分流批次</div>
+      </div>
+    </div>
+
+    <div class="row-between" style="align-items:stretch;gap:14px;margin-bottom:16px">
+      <div style="flex:1;font-size:12px;color:var(--text2);padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);line-height:1.6">
+        📌 <strong>官網 Line Pay 核銷指引：</strong><br>
+        ・<strong>負數沖銷機制</strong>：當日取消金額大於交易額時，負數餘額會由 LinePay 於後續撥款中扣除抵扣（產生撥款差額）。<br>
+        ・<strong>同日撥款加總合併</strong>：五六日統一於週二撥款，【預估撥款金額】自動加總併欄核對。<br>
+        ・<strong>核銷紀錄撤銷</strong>：若入帳金額輸入錯誤，可於下表隨時點擊「撤銷核銷」還原重新登記。
+      </div>
+      <div style="width:260px;min-width:240px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);display:flex;justify-content:space-between;align-items:center">
+          <span>💸 累積手續費</span>
+          <span class="badge badge-info">已核銷批次</span>
+        </div>
+        <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0 2px;color:var(--red)">
+          ${totalActualFee > 0 ? '−' : ''}${U.money(totalActualFee)}
+        </div>
+        <div style="font-size:11px;color:var(--text3);line-height:1.3">
+          ${confirmedCount > 0 ? `共 ${confirmedCount} 批次實際扣除手續費合計` : '尚無已核銷批次'}
+        </div>
+      </div>
+    </div>
+
+    <!-- 待核對清單 -->
+    <div class="section-title" style="margin:20px 0 8px;font-size:14px;font-weight:700">⏳ 待核對撥款 (依預計撥款日合併)</div>
+    <div class="table-wrap" style="margin-bottom:28px">
+      <table>
+        <thead><tr>
+          <th>交易日</th>
+          <th>筆數</th>
+          <th>總交易額</th>
+          <th>已取消金額</th>
+          <th>系統金額</th>
+          <th>預估手續費+稅</th>
+          <th>預估合併淨額</th>
+          <th>預計撥款日(N+2)</th>
+          <th style="text-align:center">操作</th>
+        </tr></thead>
+        <tbody>${pendingTableBody}</tbody>
+      </table>
+    </div>
+
+    <!-- 已核對批次 -->
+    <div class="section-title" style="margin:20px 0 8px;font-size:14px;font-weight:700">✅ 已核銷之撥款批次紀錄</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>撥款預計日</th>
+          <th>實際入帳日</th>
+          <th>包含交易日</th>
+          <th>交易總額</th>
+          <th>實際手續費+稅</th>
+          <th>預估應收</th>
+          <th>銀行實際入帳</th>
+          <th style="text-align:center">手續費差額</th>
+          <th style="text-align:center">操作</th>
+        </tr></thead>
+        <tbody>${batchTableBody}</tbody>
+      </table>
+    </div>
+    `;
   }
 
-  function confirmCbLinepay(payoutDate, expectedAmount, datesText) {
+  function confirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv) {
+    const today = U.today();
     openModal('確認官網 LinePay 撥款入帳', `
       <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.6">
         預計撥款日：<strong style="color:var(--text)">${U.fmt(payoutDate)}${U.fmtWeekday(payoutDate)}</strong><br>
-        包含入帳日：<strong style="color:var(--purple-light)">${datesText}</strong><br>
-        預估撥款總額：<strong style="color:var(--green)">${U.money(expectedAmount)}</strong>
+        包含入帳日：<strong style="color:var(--purple-light)">${datesCsv}</strong><br>
+        預估交易總額：<strong style="color:var(--green)">${U.money(expectedGross)}</strong> ｜ 預估淨額：<strong style="color:var(--purple-light)">${U.money(expectedNet)}</strong>
       </div>
-      <div class="form-group" style="margin-bottom:20px">
-        <label class="form-label">LinePay 實際撥款金額（銀行入帳金額）</label>
-        <div class="input-with-prefix">
-          <span class="input-prefix">NT$</span>
-          <input type="number" id="cb-lp-actual" class="form-input input-money" value="${expectedAmount}">
+
+      <div class="form-grid" style="gap:14px">
+        <div class="form-group">
+          <label class="form-label">銀行實際入帳金額 (淨額)</label>
+          <div class="input-with-prefix">
+            <span class="input-prefix">NT$</span>
+            <input type="number" id="cb-lp-actual-net" class="form-input input-money" value="${expectedNet}">
+          </div>
+          <div class="form-hint">請依銀行存摺/網銀實際入帳金額填入</div>
         </div>
-        <div class="form-hint">請依銀行網路銀行或存摺實際入帳金額填入</div>
+        <div class="form-group">
+          <label class="form-label">實際扣除手續費 (含稅)</label>
+          <div class="input-with-prefix">
+            <span class="input-prefix">NT$</span>
+            <input type="number" id="cb-lp-actual-fee" class="form-input input-money" value="${expectedFee}">
+          </div>
+          <div class="form-hint">依 LinePay 明細/撥款單實際手續費填寫</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">實際入帳日期</label>
+          <input type="date" id="cb-lp-actual-date" class="form-input" value="${payoutDate <= today ? payoutDate : today}">
+        </div>
       </div>
-      <div class="row-end">
+      <div class="row-end" style="margin-top:20px">
         <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
-        <button class="btn btn-success" onclick="App.doConfirmCbLinepay('${payoutDate}')">✅ 確認入帳</button>
+        <button class="btn btn-success" onclick="App.doConfirmCbLinepay('${payoutDate}',${expectedGross},${expectedFee},${expectedNet},'${datesCsv}')">✅ 確認撥款入帳</button>
       </div>`);
   }
 
-  function doConfirmCbLinepay(payoutDate) {
-    const actual = Number(U.el('cb-lp-actual').value);
-    if (isNaN(actual)) return toast('請輸入有效金額', 'error');
-    localStorage.setItem('cb_lp_payout_' + payoutDate, JSON.stringify({ actual, confirmedAt: new Date().toISOString() }));
+  function doConfirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv) {
+    const actualNet = Number(U.el('cb-lp-actual-net')?.value);
+    const actualFee = Number(U.el('cb-lp-actual-fee')?.value);
+    const actualDate = U.el('cb-lp-actual-date')?.value || payoutDate;
+    if (isNaN(actualNet) || isNaN(actualFee)) return toast('請輸入有效金額', 'error');
+
+    const feeAdjustment = actualNet - expectedNet;
+
+    const batches = getCbLinepayBatches();
+    const newBatch = {
+      id: 'cb_lp_batch_' + payoutDate,
+      payoutDate,
+      actualDate,
+      datesCsv,
+      grossAmount: expectedGross,
+      expectedFee,
+      expectedNet,
+      actualNet,
+      actualFee,
+      feeAdjustment,
+      confirmedAt: new Date().toISOString()
+    };
+
+    const idx = batches.findIndex(b => b.payoutDate === payoutDate);
+    if (idx >= 0) batches[idx] = newBatch;
+    else batches.push(newBatch);
+
+    localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
+    if (window.db) {
+      window.db.collection('cyberbiz_linepay_batches').doc(newBatch.id).set(newBatch, { merge: true }).catch(console.warn);
+    }
+
     closeModal();
-    toast('官網 LinePay 撥款已確認入帳', 'success');
+    toast('✅ 官網 LinePay 撥款已確認入帳', 'success');
+    navigate('cyberbiz-linepay');
+  }
+
+  function deleteCbLinepayBatch(batchId) {
+    if (!confirm('確定要撤銷此筆撥款核銷紀錄？')) return;
+    let batches = getCbLinepayBatches();
+    batches = batches.filter(b => b.id !== batchId);
+    localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
+    if (window.db) {
+      window.db.collection('cyberbiz_linepay_batches').doc(batchId).delete().catch(console.warn);
+    }
+    toast('已撤銷核銷紀錄', 'info');
     navigate('cyberbiz-linepay');
   }
 
@@ -2200,7 +2348,7 @@ window.App = (function () {
     // cyberbiz
     handleCyberbizUpload, handleCyberbizDrop, confirmCyberbizPayout, doConfirmCyberbiz, deleteCyberbiz, clearCyberbizData,
     // cyberbiz linepay
-    confirmCbLinepay, doConfirmCbLinepay,
+    confirmCbLinepay, doConfirmCbLinepay, deleteCbLinepayBatch,
     // backup & restore
     exportBackup, handleBackupUpload,
   };
