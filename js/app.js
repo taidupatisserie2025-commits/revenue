@@ -1707,8 +1707,8 @@ window.App = (function () {
       list = JSON.parse(localStorage.getItem('ta_cb_linepay_batches') || '[]');
     } catch { list = []; }
 
-    // Legacy fallback check: convert 'cb_lp_payout_YYYY-MM-DD'
-    let migrated = false;
+    // Legacy fallback check: convert and clean up 'cb_lp_payout_YYYY-MM-DD'
+    const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key && key.startsWith('cb_lp_payout_')) {
@@ -1729,12 +1729,13 @@ window.App = (function () {
               feeAdjustment: 0,
               confirmedAt: item.confirmedAt || new Date().toISOString()
             });
-            migrated = true;
           }
         } catch (e) {}
+        keysToRemove.push(key);
       }
     }
-    if (migrated) {
+    if (keysToRemove.length) {
+      keysToRemove.forEach(k => localStorage.removeItem(k));
       localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(list));
     }
     return list;
@@ -2046,6 +2047,9 @@ window.App = (function () {
     if (idx >= 0) batches[idx] = newBatch;
     else batches.push(newBatch);
 
+    // Clean up legacy key if exists
+    localStorage.removeItem('cb_lp_payout_' + payoutDate);
+
     localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
     if (window.db) {
       window.db.collection('cyberbiz_linepay_batches').doc(newBatch.id).set(newBatch, { merge: true }).catch(console.warn);
@@ -2058,8 +2062,11 @@ window.App = (function () {
 
   function deleteCbLinepayBatch(batchId) {
     if (!confirm('確定要撤銷此筆撥款核銷紀錄？')) return;
+    const payoutDate = batchId.replace('cb_lp_batch_', '');
+    localStorage.removeItem('cb_lp_payout_' + payoutDate);
+
     let batches = getCbLinepayBatches();
-    batches = batches.filter(b => b.id !== batchId);
+    batches = batches.filter(b => b.id !== batchId && b.payoutDate !== payoutDate);
     localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
     if (window.db) {
       window.db.collection('cyberbiz_linepay_batches').doc(batchId).delete().catch(console.warn);
