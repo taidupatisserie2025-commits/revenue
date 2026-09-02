@@ -10,7 +10,13 @@ window.App = (function () {
      ROUTER
   ═══════════════════════════════════════════ */
   function navigate(page, params) {
-    location.hash = params ? page + '/' + params : page;
+    const targetHash = params ? page + '/' + params : page;
+    const currentHash = location.hash.replace('#', '');
+    if (currentHash === targetHash) {
+      handleRoute();
+    } else {
+      location.hash = targetHash;
+    }
   }
 
   function handleRoute() {
@@ -21,7 +27,17 @@ window.App = (function () {
     renderPage(page, rest.join('/'));
   }
 
-  function refreshCurrentPage() {
+  function isUserEditing() {
+    const modal = document.getElementById('modal-overlay');
+    if (modal && !modal.classList.contains('hidden')) return true;
+    if (currentPage === 'daily-form') return true;
+    const activeEl = document.activeElement;
+    if (activeEl && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeEl.tagName)) return true;
+    return false;
+  }
+
+  function refreshCurrentPage(force = true) {
+    if (!force && isUserEditing()) return;
     handleRoute();
   }
 

@@ -143,6 +143,8 @@ window.AppData = (function () {
     if (!window.db) return;
     try {
       const keys = Object.values(K);
+      let hasDataChanged = false;
+
       for (const k of keys) {
         const collectionName = COLLECTION_MAP[k];
         if (!collectionName) continue;
@@ -151,7 +153,14 @@ window.AppData = (function () {
         if (k === K.SETTINGS) {
           if (!snapshot.empty) {
             snapshot.forEach(doc => {
-              if (doc.id === 'general') localStorage.setItem(k, JSON.stringify(doc.data()));
+              if (doc.id === 'general') {
+                const oldVal = localStorage.getItem(k);
+                const newVal = JSON.stringify(doc.data());
+                if (oldVal !== newVal) {
+                  localStorage.setItem(k, newVal);
+                  hasDataChanged = true;
+                }
+              }
             });
           }
         } else {
@@ -163,14 +172,21 @@ window.AppData = (function () {
           const localList = load(k) || [];
           const localOnly = localList.filter(item => { const id = getDocId(k, item); return id && !cloudIds.has(id); });
           const merged = [...cloudDocs, ...localOnly];
-          localStorage.setItem(k, JSON.stringify(merged));
+
+          const oldVal = localStorage.getItem(k);
+          const newVal = JSON.stringify(merged);
+          if (oldVal !== newVal) {
+            localStorage.setItem(k, newVal);
+            hasDataChanged = true;
+          }
+
           // Auto-heal: push local-only docs to cloud (works even if cloud is empty)
           for (const item of localOnly) { writeDoc(k, item); }
         }
       }
       updateCloudStatus(true);
-      if (window.App && typeof window.App.refreshCurrentPage === 'function') {
-        window.App.refreshCurrentPage();
+      if (hasDataChanged && window.App && typeof window.App.refreshCurrentPage === 'function') {
+        window.App.refreshCurrentPage(false);
       }
     } catch (err) {
       console.warn('Auto sync from cloud failed:', err.message);
