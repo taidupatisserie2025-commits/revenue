@@ -1968,6 +1968,7 @@ window.App = (function () {
       <table>
         <thead><tr>
           <th>撥款預計日</th>
+          <th>撥款主體</th>
           <th>實際入帳日</th>
           <th>包含交易日</th>
           <th>交易總額</th>
@@ -1985,76 +1986,152 @@ window.App = (function () {
 
   function confirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv) {
     const today = U.today();
+    const defaultDate = payoutDate <= today ? payoutDate : today;
+
     openModal('確認官網 LinePay 撥款入帳', `
-      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.6">
+      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.6">
         預計撥款日：<strong style="color:var(--text)">${U.fmt(payoutDate)}${U.fmtWeekday(payoutDate)}</strong><br>
-        包含入帳日：<strong style="color:var(--purple-light)">${datesCsv}</strong><br>
-        預估交易總額：<strong style="color:var(--green)">${U.money(expectedGross)}</strong> ｜ 預估淨額：<strong style="color:var(--purple-light)">${U.money(expectedNet)}</strong>
+        包含交易日：<strong style="color:var(--purple-light)">${datesCsv}</strong><br>
+        預估交易總額：<strong style="color:var(--green)">${U.money(expectedGross)}</strong> ｜ 預估應收淨額：<strong style="color:var(--purple-light)">${U.money(expectedNet)}</strong>
       </div>
 
-      <div class="form-grid" style="gap:14px">
-        <div class="form-group">
-          <label class="form-label">銀行實際入帳金額 (淨額)</label>
-          <div class="input-with-prefix">
-            <span class="input-prefix">NT$</span>
-            <input type="number" id="cb-lp-actual-net" class="form-input input-money" value="${expectedNet}">
+      <!-- 連家電子支付 -->
+      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 12px; background: rgba(16,185,129,0.02)">
+        <div style="font-weight:700; font-size:12px; color:var(--green); margin-bottom:8px">📱 連家電子支付公司 (帳戶撥款)</div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="cb-lp-account-net" class="form-input form-input-sm" placeholder="0">
+            </div>
           </div>
-          <div class="form-hint">請依銀行存摺/網銀實際入帳金額填入</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">實際扣除手續費 (含稅)</label>
-          <div class="input-with-prefix">
-            <span class="input-prefix">NT$</span>
-            <input type="number" id="cb-lp-actual-fee" class="form-input input-money" value="${expectedFee}">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="cb-lp-account-fee" class="form-input form-input-sm" placeholder="0">
+            </div>
           </div>
-          <div class="form-hint">依 LinePay 明細/撥款單實際手續費填寫</div>
         </div>
-        <div class="form-group">
-          <label class="form-label">實際入帳日期</label>
-          <input type="date" id="cb-lp-actual-date" class="form-input" value="${payoutDate <= today ? payoutDate : today}">
+        <div class="form-group" style="margin-top:8px; margin-bottom:0">
+          <label class="form-label" style="font-size:11px">實際入帳日期</label>
+          <input type="date" id="cb-lp-account-date" class="form-input form-input-sm" value="${defaultDate}">
         </div>
       </div>
-      <div class="row-end" style="margin-top:20px">
+
+      <!-- 連家網路 -->
+      <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 16px; background: rgba(59,130,246,0.02)">
+        <div style="font-weight:700; font-size:12px; color:var(--blue); margin-bottom:8px">💳 連家網路公司 (信用卡撥款)</div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="cb-lp-card-net" class="form-input form-input-sm" placeholder="0">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix" style="font-size:11px">NT$</span>
+              <input type="number" id="cb-lp-card-fee" class="form-input form-input-sm" placeholder="0">
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:8px; margin-bottom:0">
+          <label class="form-label" style="font-size:11px">實際入帳日期</label>
+          <input type="date" id="cb-lp-card-date" class="form-input form-input-sm" value="${defaultDate}">
+        </div>
+      </div>
+
+      <div class="row-end">
         <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
         <button class="btn btn-success" onclick="App.doConfirmCbLinepay('${payoutDate}',${expectedGross},${expectedFee},${expectedNet},'${datesCsv}')">✅ 確認撥款入帳</button>
       </div>`);
   }
 
   function doConfirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv) {
-    const actualNet = Number(U.el('cb-lp-actual-net')?.value);
-    const actualFee = Number(U.el('cb-lp-actual-fee')?.value);
-    const actualDate = U.el('cb-lp-actual-date')?.value || payoutDate;
-    if (isNaN(actualNet) || isNaN(actualFee)) return toast('請輸入有效金額', 'error');
+    const accountNetRaw = U.el('cb-lp-account-net')?.value;
+    const accountFeeRaw = U.el('cb-lp-account-fee')?.value;
+    const accountDate   = U.el('cb-lp-account-date')?.value || payoutDate;
 
-    const feeAdjustment = actualNet - expectedNet;
+    const cardNetRaw = U.el('cb-lp-card-net')?.value;
+    const cardFeeRaw = U.el('cb-lp-card-fee')?.value;
+    const cardDate   = U.el('cb-lp-card-date')?.value || payoutDate;
+
+    const accountNet = Number(accountNetRaw) || 0;
+    const accountFee = Number(accountFeeRaw) || 0;
+    const cardNet    = Number(cardNetRaw) || 0;
+    const cardFee    = Number(cardFeeRaw) || 0;
+
+    const hasAccount = (accountNetRaw !== '' && accountNetRaw != null) || (accountFeeRaw !== '' && accountFeeRaw != null);
+    const hasCard    = (cardNetRaw !== '' && cardNetRaw != null) || (cardFeeRaw !== '' && cardFeeRaw != null);
+
+    if (!hasAccount && !hasCard) {
+      return toast('請至少填寫一間公司的實際入帳資料', 'error');
+    }
 
     const batches = getCbLinepayBatches();
-    const newBatch = {
-      id: 'cb_lp_batch_' + payoutDate,
-      payoutDate,
-      actualDate,
-      datesCsv,
-      grossAmount: expectedGross,
-      expectedFee,
-      expectedNet,
-      actualNet,
-      actualFee,
-      feeAdjustment,
-      confirmedAt: new Date().toISOString()
-    };
-
-    const idx = batches.findIndex(b => b.payoutDate === payoutDate);
-    if (idx >= 0) batches[idx] = newBatch;
-    else batches.push(newBatch);
 
     // Clean up legacy key if exists
     localStorage.removeItem('cb_lp_payout_' + payoutDate);
 
-    localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
-    if (window.db) {
-      window.db.collection('cyberbiz_linepay_batches').doc(newBatch.id).set(newBatch, { merge: true }).catch(console.warn);
+    if (hasAccount) {
+      const gross = accountNet + accountFee;
+      const estFee = Math.round(gross * 0.0294);
+      const estNet = gross - estFee;
+      const newBatch = {
+        id: 'cb_lp_batch_account_' + payoutDate,
+        payoutDate,
+        actualDate: accountDate,
+        channel: 'account',
+        datesCsv,
+        grossAmount: gross,
+        expectedFee: estFee,
+        expectedNet: estNet,
+        actualNet: accountNet,
+        actualFee: accountFee,
+        feeAdjustment: accountNet - estNet,
+        confirmedAt: new Date().toISOString()
+      };
+      const idx = batches.findIndex(b => b.id === newBatch.id);
+      if (idx >= 0) batches[idx] = newBatch;
+      else batches.push(newBatch);
+
+      if (window.db) {
+        window.db.collection('cyberbiz_linepay_batches').doc(newBatch.id).set(newBatch, { merge: true }).catch(console.warn);
+      }
     }
 
+    if (hasCard) {
+      const gross = cardNet + cardFee;
+      const estFee = Math.round(gross * 0.0294);
+      const estNet = gross - estFee;
+      const newBatch = {
+        id: 'cb_lp_batch_card_' + payoutDate,
+        payoutDate,
+        actualDate: cardDate,
+        channel: 'card',
+        datesCsv,
+        grossAmount: gross,
+        expectedFee: estFee,
+        expectedNet: estNet,
+        actualNet: cardNet,
+        actualFee: cardFee,
+        feeAdjustment: cardNet - estNet,
+        confirmedAt: new Date().toISOString()
+      };
+      const idx = batches.findIndex(b => b.id === newBatch.id);
+      if (idx >= 0) batches[idx] = newBatch;
+      else batches.push(newBatch);
+
+      if (window.db) {
+        window.db.collection('cyberbiz_linepay_batches').doc(newBatch.id).set(newBatch, { merge: true }).catch(console.warn);
+      }
+    }
+
+    localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
     closeModal();
     toast('✅ 官網 LinePay 撥款已確認入帳', 'success');
     navigate('cyberbiz-linepay');
@@ -2062,11 +2139,12 @@ window.App = (function () {
 
   function deleteCbLinepayBatch(batchId) {
     if (!confirm('確定要撤銷此筆撥款核銷紀錄？')) return;
-    const payoutDate = batchId.replace('cb_lp_batch_', '');
-    localStorage.removeItem('cb_lp_payout_' + payoutDate);
-
     let batches = getCbLinepayBatches();
-    batches = batches.filter(b => b.id !== batchId && b.payoutDate !== payoutDate);
+    const target = batches.find(b => b.id === batchId);
+    if (target && target.payoutDate) {
+      localStorage.removeItem('cb_lp_payout_' + target.payoutDate);
+    }
+    batches = batches.filter(b => b.id !== batchId);
     localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
     if (window.db) {
       window.db.collection('cyberbiz_linepay_batches').doc(batchId).delete().catch(console.warn);
