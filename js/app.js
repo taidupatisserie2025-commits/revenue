@@ -1876,8 +1876,11 @@ window.App = (function () {
           ? `<span class="badge badge-success" title="實際手續費少扣（少付費或溢撥）">+${U.money(diff)}</span>`
           : `<span class="badge badge-danger" title="實際手續費多扣（多付費或折抵）">−${U.money(Math.abs(diff))}</span>`;
 
+      const entityName = b.channel === 'card' ? '💳 連家網路 (信用卡)' : b.channel === 'account' ? '📱 連家電子支付' : '官網 LinePay';
+
       batchRows.push(`<tr>
         <td><strong>${U.fmt(b.payoutDate)}</strong>${U.fmtWeekday(b.payoutDate)}</td>
+        <td><span style="font-size:12px">${entityName}</span></td>
         <td><strong>${U.fmt(b.actualDate)}</strong>${U.fmtWeekday(b.actualDate)}</td>
         <td style="font-size:12px;color:var(--purple-light)">${b.datesCsv || '—'}</td>
         <td class="td-number text-green">${U.money(b.grossAmount)}</td>
@@ -1891,7 +1894,7 @@ window.App = (function () {
       </tr>`);
     });
 
-    const batchTableBody = batchRows.join('') || `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之撥款批次紀錄</td></tr>`;
+    const batchTableBody = batchRows.join('') || `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之撥款批次紀錄</td></tr>`;
 
     return `
     <div class="page-header">
