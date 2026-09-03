@@ -2008,11 +2008,11 @@ window.App = (function () {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <span style="font-weight:700; font-size:12px; color:var(--green)">📱 連家電子支付公司 (帳戶撥款)</span>
           <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-            <input type="checkbox" id="cb-lp-account-confirm" onchange="App.toggleCbLpSection('account',this.checked)">
+            <input type="checkbox" id="cb-lp-account-confirm" onchange="App.toggleCbLpSection('account',this.checked)" checked>
             確認此公司本次撥款
           </label>
         </div>
-        <div id="cb-lp-account-fields" style="opacity:0.35;pointer-events:none">
+        <div id="cb-lp-account-fields">
           <div class="form-grid form-grid-2">
             <div class="form-group" style="margin-bottom:0">
               <label class="form-label" style="font-size:11px">實際入帳淨額（零撥款填 0）</label>
@@ -2050,11 +2050,11 @@ window.App = (function () {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <span style="font-weight:700; font-size:12px; color:var(--blue)">💳 連家網路公司 (信用卡撥款)</span>
           <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
-            <input type="checkbox" id="cb-lp-card-confirm" onchange="App.toggleCbLpSection('card',this.checked)">
+            <input type="checkbox" id="cb-lp-card-confirm" onchange="App.toggleCbLpSection('card',this.checked)" checked>
             確認此公司本次撥款
           </label>
         </div>
-        <div id="cb-lp-card-fields" style="opacity:0.35;pointer-events:none">
+        <div id="cb-lp-card-fields">
           <div class="form-grid form-grid-2">
             <div class="form-group" style="margin-bottom:0">
               <label class="form-label" style="font-size:11px">實際入帳淨額（零撥款填 0）</label>
