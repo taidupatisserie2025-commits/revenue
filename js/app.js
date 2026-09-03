@@ -1869,32 +1869,37 @@ window.App = (function () {
     // 2. Confirmed Table Rows
     const batchRows = [];
     allBatches.slice().sort((a,b) => (b.actualDate||b.payoutDate).localeCompare(a.actualDate||a.payoutDate)).forEach(b => {
-      const diff = b.feeAdjustment || 0;
-      const diffHtml = diff === 0
-        ? `<span class="badge badge-info">無差額</span>`
-        : diff > 0
-          ? `<span class="badge badge-success" title="實際手續費少扣（少付費或溢撥）">+${U.money(diff)}</span>`
-          : `<span class="badge badge-danger" title="實際手續費多扣（多付費或折抵）">−${U.money(Math.abs(diff))}</span>`;
-
       const entityName = b.channel === 'card' ? '💳 連家網路 (信用卡)' : b.channel === 'account' ? '📱 連家電子支付' : '官網 LinePay';
+      const isZero = b.isZeroPayout;
+      const offsetAmt = b.offsetAmount || 0;
 
-      batchRows.push(`<tr>
+      // Build offset cell
+      const offsetCell = offsetAmt > 0
+        ? `<span class="text-red" style="font-weight:600">−${U.money(offsetAmt)}</span>`
+        : `<span class="td-muted">—</span>`;
+
+      // Zero payout row style
+      const rowStyle = isZero ? ' style="opacity:0.65;background:rgba(0,0,0,0.03)"' : '';
+      const netCell = isZero
+        ? `<span class="badge badge-info">零撥款（負數帶出）</span>`
+        : `${U.money(b.actualNet)}`;
+
+      batchRows.push(`<tr${rowStyle}>
         <td><strong>${U.fmt(b.payoutDate)}</strong>${U.fmtWeekday(b.payoutDate)}</td>
         <td><span style="font-size:12px">${entityName}</span></td>
         <td><strong>${U.fmt(b.actualDate)}</strong>${U.fmtWeekday(b.actualDate)}</td>
         <td style="font-size:12px;color:var(--purple-light)">${b.datesCsv || '—'}</td>
-        <td class="td-number text-green">${U.money(b.grossAmount)}</td>
+        <td class="td-number text-green">${U.money(b.originalGross || b.grossAmount)}</td>
         <td class="td-number text-red">−${U.money(b.actualFee)}</td>
-        <td class="td-number text-purple" style="font-weight:700">${U.money(b.expectedNet)}</td>
-        <td class="td-number text-green" style="font-weight:700;background:rgba(16,185,129,0.03)">${U.money(b.actualNet)}</td>
-        <td style="text-align:center">${diffHtml}</td>
+        <td class="td-number" style="text-align:center">${offsetCell}</td>
+        <td class="td-number text-green" style="font-weight:700;background:rgba(16,185,129,0.03)">${netCell}</td>
         <td style="text-align:center">
           <button class="btn btn-ghost btn-sm text-red" onclick="App.deleteCbLinepayBatch('${b.id}')">撤銷核銷</button>
         </td>
       </tr>`);
     });
 
-    const batchTableBody = batchRows.join('') || `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之撥款批次紀錄</td></tr>`;
+    const batchTableBody = batchRows.join('') || `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之撥款批次紀錄</td></tr>`;
 
     return `
     <div class="page-header">
@@ -1974,11 +1979,10 @@ window.App = (function () {
           <th>撥款主體</th>
           <th>實際入帳日</th>
           <th>包含交易日</th>
-          <th>交易總額</th>
-          <th>實際手續費+稅</th>
-          <th>預估應收</th>
+          <th>原始交易額</th>
+          <th>手續費+稅</th>
+          <th>沖銷金額</th>
           <th>銀行實際入帳</th>
-          <th style="text-align:center">手續費差額</th>
           <th style="text-align:center">操作</th>
         </tr></thead>
         <tbody>${batchTableBody}</tbody>
@@ -1996,55 +2000,90 @@ window.App = (function () {
         預計撥款日：<strong style="color:var(--text)">${U.fmt(payoutDate)}${U.fmtWeekday(payoutDate)}</strong><br>
         包含交易日：<strong style="color:var(--purple-light)">${datesCsv}</strong><br>
         預估交易總額：<strong style="color:var(--green)">${U.money(expectedGross)}</strong> ｜ 預估應收淨額：<strong style="color:var(--purple-light)">${U.money(expectedNet)}</strong>
+        <div style="margin-top:6px;padding:5px 8px;background:rgba(245,158,11,0.08);border-radius:4px;color:var(--amber);font-size:11px">⚠️ 預估金額不含沖銷扣款，實際金額請依 LINE Pay APP 明細為準</div>
       </div>
 
       <!-- 連家電子支付 -->
       <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 12px; background: rgba(16,185,129,0.02)">
-        <div style="font-weight:700; font-size:12px; color:var(--green); margin-bottom:8px">📱 連家電子支付公司 (帳戶撥款)</div>
-        <div class="form-grid form-grid-2">
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
-            <div class="input-with-prefix">
-              <span class="input-prefix" style="font-size:11px">NT$</span>
-              <input type="number" id="cb-lp-account-net" class="form-input form-input-sm" placeholder="0">
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
-            <div class="input-with-prefix">
-              <span class="input-prefix" style="font-size:11px">NT$</span>
-              <input type="number" id="cb-lp-account-fee" class="form-input form-input-sm" placeholder="0">
-            </div>
-          </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-weight:700; font-size:12px; color:var(--green)">📱 連家電子支付公司 (帳戶撥款)</span>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+            <input type="checkbox" id="cb-lp-account-confirm" onchange="App.toggleCbLpSection('account',this.checked)">
+            確認此公司本次撥款
+          </label>
         </div>
-        <div class="form-group" style="margin-top:8px; margin-bottom:0">
-          <label class="form-label" style="font-size:11px">實際入帳日期</label>
-          <input type="date" id="cb-lp-account-date" class="form-input form-input-sm" value="${defaultDate}">
+        <div id="cb-lp-account-fields" style="opacity:0.35;pointer-events:none">
+          <div class="form-grid form-grid-2">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">實際入帳淨額（零撥款填 0）</label>
+              <div class="input-with-prefix">
+                <span class="input-prefix" style="font-size:11px">NT$</span>
+                <input type="number" id="cb-lp-account-net" class="form-input form-input-sm" placeholder="0" min="0">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">實際手續費+稅</label>
+              <div class="input-with-prefix">
+                <span class="input-prefix" style="font-size:11px">NT$</span>
+                <input type="number" id="cb-lp-account-fee" class="form-input form-input-sm" placeholder="0" min="0">
+              </div>
+            </div>
+          </div>
+          <div class="form-grid form-grid-2" style="margin-top:8px">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">沖銷金額（若有請填，無則留空）</label>
+              <div class="input-with-prefix">
+                <span class="input-prefix" style="font-size:11px;color:var(--red)">−NT$</span>
+                <input type="number" id="cb-lp-account-offset" class="form-input form-input-sm" placeholder="0" min="0" style="border-color:var(--amber)">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">實際入帳日期</label>
+              <input type="date" id="cb-lp-account-date" class="form-input form-input-sm" value="${defaultDate}">
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- 連家網路 -->
       <div style="border: 1px solid var(--border); border-radius:var(--radius-sm); padding: 12px; margin-bottom: 16px; background: rgba(59,130,246,0.02)">
-        <div style="font-weight:700; font-size:12px; color:var(--blue); margin-bottom:8px">💳 連家網路公司 (信用卡撥款)</div>
-        <div class="form-grid form-grid-2">
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" style="font-size:11px">實際入帳淨額</label>
-            <div class="input-with-prefix">
-              <span class="input-prefix" style="font-size:11px">NT$</span>
-              <input type="number" id="cb-lp-card-net" class="form-input form-input-sm" placeholder="0">
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" style="font-size:11px">實際扣除手續費+稅</label>
-            <div class="input-with-prefix">
-              <span class="input-prefix" style="font-size:11px">NT$</span>
-              <input type="number" id="cb-lp-card-fee" class="form-input form-input-sm" placeholder="0">
-            </div>
-          </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-weight:700; font-size:12px; color:var(--blue)">💳 連家網路公司 (信用卡撥款)</span>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+            <input type="checkbox" id="cb-lp-card-confirm" onchange="App.toggleCbLpSection('card',this.checked)">
+            確認此公司本次撥款
+          </label>
         </div>
-        <div class="form-group" style="margin-top:8px; margin-bottom:0">
-          <label class="form-label" style="font-size:11px">實際入帳日期</label>
-          <input type="date" id="cb-lp-card-date" class="form-input form-input-sm" value="${defaultDate}">
+        <div id="cb-lp-card-fields" style="opacity:0.35;pointer-events:none">
+          <div class="form-grid form-grid-2">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">實際入帳淨額（零撥款填 0）</label>
+              <div class="input-with-prefix">
+                <span class="input-prefix" style="font-size:11px">NT$</span>
+                <input type="number" id="cb-lp-card-net" class="form-input form-input-sm" placeholder="0" min="0">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">實際手續費+稅</label>
+              <div class="input-with-prefix">
+                <span class="input-prefix" style="font-size:11px">NT$</span>
+                <input type="number" id="cb-lp-card-fee" class="form-input form-input-sm" placeholder="0" min="0">
+              </div>
+            </div>
+          </div>
+          <div class="form-grid form-grid-2" style="margin-top:8px">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">沖銷金額（若有請填，無則留空）</label>
+              <div class="input-with-prefix">
+                <span class="input-prefix" style="font-size:11px;color:var(--red)">−NT$</span>
+                <input type="number" id="cb-lp-card-offset" class="form-input form-input-sm" placeholder="0" min="0" style="border-color:var(--amber)">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:11px">實際入帳日期</label>
+              <input type="date" id="cb-lp-card-date" class="form-input form-input-sm" value="${defaultDate}">
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2054,84 +2093,98 @@ window.App = (function () {
       </div>`);
   }
 
+  function toggleCbLpSection(channel, checked) {
+    const fields = document.getElementById('cb-lp-' + channel + '-fields');
+    if (fields) {
+      fields.style.opacity = checked ? '1' : '0.35';
+      fields.style.pointerEvents = checked ? 'auto' : 'none';
+    }
+  }
+
   function doConfirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv) {
-    const accountNetRaw = U.el('cb-lp-account-net')?.value;
-    const accountFeeRaw = U.el('cb-lp-account-fee')?.value;
-    const accountDate   = U.el('cb-lp-account-date')?.value || payoutDate;
+    const accountConfirmed = U.el('cb-lp-account-confirm')?.checked;
+    const cardConfirmed    = U.el('cb-lp-card-confirm')?.checked;
 
-    const cardNetRaw = U.el('cb-lp-card-net')?.value;
-    const cardFeeRaw = U.el('cb-lp-card-fee')?.value;
-    const cardDate   = U.el('cb-lp-card-date')?.value || payoutDate;
-
-    const accountNet = Number(accountNetRaw) || 0;
-    const accountFee = Number(accountFeeRaw) || 0;
-    const cardNet    = Number(cardNetRaw) || 0;
-    const cardFee    = Number(cardFeeRaw) || 0;
-
-    const hasAccount = (accountNetRaw !== '' && accountNetRaw != null) || (accountFeeRaw !== '' && accountFeeRaw != null);
-    const hasCard    = (cardNetRaw !== '' && cardNetRaw != null) || (cardFeeRaw !== '' && cardFeeRaw != null);
-
-    if (!hasAccount && !hasCard) {
-      return toast('請至少填寫一間公司的實際入帳資料', 'error');
+    if (!accountConfirmed && !cardConfirmed) {
+      return toast('請至少勾選並確認一間公司的撥款', 'error');
     }
 
-    const batches = getCbLinepayBatches();
+    const accountNetRaw    = U.el('cb-lp-account-net')?.value;
+    const accountFeeRaw    = U.el('cb-lp-account-fee')?.value;
+    const accountOffsetRaw = U.el('cb-lp-account-offset')?.value;
+    const accountDate      = U.el('cb-lp-account-date')?.value || payoutDate;
 
-    // Clean up legacy key if exists
+    const cardNetRaw    = U.el('cb-lp-card-net')?.value;
+    const cardFeeRaw    = U.el('cb-lp-card-fee')?.value;
+    const cardOffsetRaw = U.el('cb-lp-card-offset')?.value;
+    const cardDate      = U.el('cb-lp-card-date')?.value || payoutDate;
+
+    const accountNet    = Number(accountNetRaw) || 0;
+    const accountFee    = Number(accountFeeRaw) || 0;
+    const accountOffset = Number(accountOffsetRaw) || 0;
+    const cardNet       = Number(cardNetRaw) || 0;
+    const cardFee       = Number(cardFeeRaw) || 0;
+    const cardOffset    = Number(cardOffsetRaw) || 0;
+
+    const batches = getCbLinepayBatches();
     localStorage.removeItem('cb_lp_payout_' + payoutDate);
 
-    if (hasAccount) {
-      const gross = accountNet + accountFee;
-      const estFee = Math.round(gross * 0.0294);
-      const estNet = gross - estFee;
-      const newBatch = {
+    function saveBatch(batch) {
+      const idx = batches.findIndex(b => b.id === batch.id);
+      if (idx >= 0) batches[idx] = batch;
+      else batches.push(batch);
+      if (window.db) {
+        window.db.collection('cyberbiz_linepay_batches').doc(batch.id).set(batch, { merge: true }).catch(console.warn);
+      }
+    }
+
+    if (accountConfirmed) {
+      // originalGross = net + fee + 沖銷 (reflects actual LinePay transaction total)
+      const originalGross = accountNet + accountFee + accountOffset;
+      const estFee = Math.round(originalGross * 0.0294);
+      const estNet = originalGross - estFee;
+      const isZero = (accountNet === 0);
+      saveBatch({
         id: 'cb_lp_batch_account_' + payoutDate,
         payoutDate,
         actualDate: accountDate,
         channel: 'account',
         datesCsv,
-        grossAmount: gross,
+        originalGross,
+        grossAmount: originalGross,
+        offsetAmount: accountOffset,
         expectedFee: estFee,
         expectedNet: estNet,
         actualNet: accountNet,
         actualFee: accountFee,
+        isZeroPayout: isZero,
         feeAdjustment: accountNet - estNet,
         confirmedAt: new Date().toISOString()
-      };
-      const idx = batches.findIndex(b => b.id === newBatch.id);
-      if (idx >= 0) batches[idx] = newBatch;
-      else batches.push(newBatch);
-
-      if (window.db) {
-        window.db.collection('cyberbiz_linepay_batches').doc(newBatch.id).set(newBatch, { merge: true }).catch(console.warn);
-      }
+      });
     }
 
-    if (hasCard) {
-      const gross = cardNet + cardFee;
-      const estFee = Math.round(gross * 0.0294);
-      const estNet = gross - estFee;
-      const newBatch = {
+    if (cardConfirmed) {
+      const originalGross = cardNet + cardFee + cardOffset;
+      const estFee = Math.round(originalGross * 0.0294);
+      const estNet = originalGross - estFee;
+      const isZero = (cardNet === 0);
+      saveBatch({
         id: 'cb_lp_batch_card_' + payoutDate,
         payoutDate,
         actualDate: cardDate,
         channel: 'card',
         datesCsv,
-        grossAmount: gross,
+        originalGross,
+        grossAmount: originalGross,
+        offsetAmount: cardOffset,
         expectedFee: estFee,
         expectedNet: estNet,
         actualNet: cardNet,
         actualFee: cardFee,
+        isZeroPayout: isZero,
         feeAdjustment: cardNet - estNet,
         confirmedAt: new Date().toISOString()
-      };
-      const idx = batches.findIndex(b => b.id === newBatch.id);
-      if (idx >= 0) batches[idx] = newBatch;
-      else batches.push(newBatch);
-
-      if (window.db) {
-        window.db.collection('cyberbiz_linepay_batches').doc(newBatch.id).set(newBatch, { merge: true }).catch(console.warn);
-      }
+      });
     }
 
     localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
@@ -2436,7 +2489,7 @@ window.App = (function () {
     // cyberbiz
     handleCyberbizUpload, handleCyberbizDrop, confirmCyberbizPayout, doConfirmCyberbiz, deleteCyberbiz, clearCyberbizData,
     // cyberbiz linepay
-    confirmCbLinepay, doConfirmCbLinepay, deleteCbLinepayBatch,
+    confirmCbLinepay, doConfirmCbLinepay, deleteCbLinepayBatch, toggleCbLpSection,
     // backup & restore
     exportBackup, handleBackupUpload,
   };
