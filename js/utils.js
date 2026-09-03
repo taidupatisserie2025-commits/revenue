@@ -146,17 +146,6 @@ window.AppUtils = (function () {
     if (orderSheet) {
       const rows = XLSX.utils.sheet_to_json(orderSheet, { header: 1, defval: null });
 
-      const canceledLinePayOrderIds = new Set();
-      for (let i = 2; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r[0]) continue;
-        const payMethod = String(r[4] || '');
-        const txType    = String(r[3] || '');
-        if (payMethod === 'Line Pay' && txType === '退款') {
-          canceledLinePayOrderIds.add(String(r[0]));
-        }
-      }
-
       for (let i = 2; i < rows.length; i++) {
         const r = rows[i];
         if (!r[0]) continue;
@@ -193,10 +182,6 @@ window.AppUtils = (function () {
             dayObj.grossTotal += txAmount;
             dayObj.count += 1;
             dayObj.fee += maintFee;
-
-            if (!canceledLinePayOrderIds.has(orderId)) {
-              dayObj.uncanceledAmount += txAmount;
-            }
 
             result.linePay.total += txAmount;
           } else if (txType === '退款') {
@@ -255,12 +240,12 @@ window.AppUtils = (function () {
         const item = result.linePay.daily[d];
         item.systemAmount = item.grossTotal - item.canceledAmount;
 
-        const rawFee = item.uncanceledAmount * feeRate;
+        const rawFee = item.systemAmount * feeRate;
         item.lpTxFee = Math.round(rawFee);
         item.lpTaxFee = Math.round(item.lpTxFee * taxRate);
         item.lpTotalFee = item.lpTxFee + item.lpTaxFee;
 
-        item.payoutAmount = Math.max(0, item.uncanceledAmount - item.lpTotalFee);
+        item.payoutAmount = Math.max(0, item.systemAmount - item.lpTotalFee);
         item.amount = item.payoutAmount;
       });
     }

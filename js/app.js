@@ -1774,8 +1774,8 @@ window.App = (function () {
         const canceledAmt   = d.canceledAmount || 0;
         const systemAmt     = d.systemAmount !== undefined ? d.systemAmount : (grossTotal - canceledAmt);
         const uncanceledAmt = d.uncanceledAmount !== undefined ? d.uncanceledAmount : (d.payoutAmount || grossTotal);
-        const feeAndTax     = d.lpTotalFee !== undefined ? d.lpTotalFee : Math.round(uncanceledAmt * 0.0294);
-        const payoutAmt     = Math.max(0, uncanceledAmt - feeAndTax);
+        const feeAndTax     = d.lpTotalFee !== undefined ? d.lpTotalFee : Math.round(systemAmt * 0.0294);
+        const payoutAmt     = Math.max(0, systemAmt - feeAndTax);
         const payoutDate    = U.addBusinessDays(date, C.LINEPAY_BUSINESS_DAYS);
 
         allDaysMap[date] = {
