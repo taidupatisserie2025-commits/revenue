@@ -100,6 +100,58 @@ window.App = (function () {
 
   let activeDashboardMonth = null;
 
+  function showStoreRevenueModal(month) {
+    const monthReports = D.Daily.getAll().filter(r => r.date.startsWith(month));
+    let cash = 0, linePay = 0, tsCC = 0, tsAP = 0, uber = 0, transfer = 0;
+    monthReports.forEach(r => {
+      const o = r.onsite || {};
+      cash += o.cash || 0;
+      linePay += o.linePay || 0;
+      tsCC += o.taishinCC || 0;
+      tsAP += o.taishinAP || 0;
+      uber += o.uber || 0;
+      transfer += o.bankTransfer || 0;
+    });
+
+    const total = cash + linePay + tsCC + tsAP + uber + transfer;
+
+    const html = `
+      <div style="font-size:14px; color:var(--text); line-height:1.6; margin-bottom:16px;">
+        ${month.replace('-','年')}月 門市各通路營業額（共 ${monthReports.length} 天）
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group" style="background:var(--bg2); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">💵 現金</div>
+          <div style="font-size:18px; font-weight:700; color:var(--text)">${U.money(cash)}</div>
+        </div>
+        <div class="form-group" style="background:rgba(16,185,129,0.05); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(16,185,129,0.2)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">💚 LinePay</div>
+          <div style="font-size:18px; font-weight:700; color:var(--green)">${U.money(linePay)}</div>
+        </div>
+        <div class="form-group" style="background:rgba(59,130,246,0.05); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(59,130,246,0.2)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">💳 信用卡/Apple Pay</div>
+          <div style="font-size:18px; font-weight:700; color:var(--blue)">${U.money(tsCC + tsAP)}</div>
+        </div>
+        <div class="form-group" style="background:rgba(20,184,166,0.05); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(20,184,166,0.2)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">🛵 Uber Eats</div>
+          <div style="font-size:18px; font-weight:700; color:var(--teal)">${U.money(uber)}</div>
+        </div>
+        <div class="form-group" style="background:rgba(245,158,11,0.05); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(245,158,11,0.2)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">🏦 匯款追蹤</div>
+          <div style="font-size:18px; font-weight:700; color:var(--amber)">${U.money(transfer)}</div>
+        </div>
+        <div class="form-group" style="background:var(--bg3); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">總計</div>
+          <div style="font-size:18px; font-weight:700; color:var(--text)">${U.money(total)}</div>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:20px; text-align:right;">
+        <button class="btn btn-primary" onclick="App.closeModal()">確認</button>
+      </div>
+    `;
+    openModal('門市營業額通路分析', html);
+  }
+
   /* ═══════════════════════════════════════════
      PAGE: DASHBOARD
   ═══════════════════════════════════════════ */
@@ -246,7 +298,7 @@ window.App = (function () {
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
-        <div class="big-stat" style="cursor:pointer;border:1.5px solid rgba(124,58,237,0.15)" onclick="App.navigate('daily')">
+        <div class="big-stat" style="cursor:pointer;border:1.5px solid rgba(124,58,237,0.15)" onclick="App.showStoreRevenueModal('${displayMonth}')">
           <div class="big-stat-label">🏪 門市營業額</div>
           <div class="big-stat-value text-amber">${U.money(storeMonthTotal)}</div>
           <div class="big-stat-sub">每日報表累計・${monthReports.length} 天</div>
@@ -2471,7 +2523,7 @@ window.App = (function () {
 
   /* Public API */
   return {
-    navigate, closeModal, openModal, toast, refreshCurrentPage,
+    navigate, closeModal, openModal, toast, refreshCurrentPage, showStoreRevenueModal,
     // daily
     saveDailyForm, deleteDaily, openParseLineModal, doParseLineReportText,
     // linepay onsite
