@@ -2593,7 +2593,7 @@ window.App = (function () {
 
   /* Public API */
   return {
-    navigate, closeModal, openModal, toast, refreshCurrentPage, showStoreRevenueModal,
+    navigate, closeModal, openModal, toast, refreshCurrentPage, showStoreRevenueModal, setGlobalMonth,
     // daily
     saveDailyForm, deleteDaily, openParseLineModal, doParseLineReportText,
     // linepay onsite
