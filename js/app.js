@@ -1648,17 +1648,21 @@ window.App = (function () {
       const lp = p.linePay || {};
       const cp = p.cyberPayments || {};
       const coins = p.cyberCoins || {};
+      const cpTotal = cp.total || 0;
+      const expenses = (lp.maintenanceFee||0) + (cp.txFee||0) + (cp.maintenanceFee||0);
+      const coinsTotal = coins.total || 0;
+      const calculatedPayout = cpTotal - expenses - coinsTotal;
       return `<tr>
         <td><strong>${U.fmt(p.periodStart)} ～ ${U.fmt(p.periodEnd)}</strong></td>
         <td class="td-number">${U.money(lp.total||0)}</td>
-        <td class="td-number">${U.money(cp.total||0)}</td>
-        <td class="td-number text-red">−${U.money((lp.maintenanceFee||0)+(cp.txFee||0)+(cp.maintenanceFee||0))}</td>
-        <td class="td-number text-red">−${U.money(coins.total||0)}</td>
-        <td class="td-number text-green"><strong>${U.money(p.summaryPayout||0)}</strong></td>
+        <td class="td-number">${U.money(cpTotal)}</td>
+        <td class="td-number text-red">−${U.money(expenses)}</td>
+        <td class="td-number text-red">−${U.money(coinsTotal)}</td>
+        <td class="td-number text-green"><strong>${U.money(calculatedPayout)}</strong></td>
         <td>${U.statusBadge(p.payoutStatus||'pending')}</td>
         <td class="td-number">${p.actualPayout != null ? U.money(p.actualPayout) : '—'}</td>
         <td><div class="row" style="gap:6px">
-          ${p.payoutStatus !== 'received' ? `<button class="btn btn-success btn-sm" onclick="App.confirmCyberbizPayout('${p.id}',${p.summaryPayout||0})">確認撥款</button>` : ''}
+          ${p.payoutStatus !== 'received' ? `<button class="btn btn-success btn-sm" onclick="App.confirmCyberbizPayout('${p.id}',${calculatedPayout})">確認撥款</button>` : ''}
           <button class="btn btn-danger btn-sm btn-icon" onclick="App.deleteCyberbiz('${p.id}')">🗑</button>
         </div></td>
       </tr>`;
@@ -2342,6 +2346,13 @@ window.App = (function () {
 
     const periodSections = periods.length ? periods.map(p => {
       const cp = p.cyberPayments || {};
+      const lp = p.linePay || {};
+      const coins = p.cyberCoins || {};
+      const cpTotal = cp.total || 0;
+      const expenses = (lp.maintenanceFee||0) + (cp.txFee||0) + (cp.maintenanceFee||0);
+      const coinsTotal = coins.total || 0;
+      const calculatedPayout = cpTotal - expenses - coinsTotal;
+
       const breakdown = cp.breakdown || {};
 
       const breakdownRows = Object.entries(breakdown).map(([method, data]) => {
@@ -2387,7 +2398,7 @@ window.App = (function () {
           </div>
           <div class="week-stat">
             <div class="week-stat-label">CyberBiz 總表撥款額</div>
-            <div class="week-stat-value text-green">${U.money(p.summaryPayout||0)}</div>
+            <div class="week-stat-value text-green">${U.money(calculatedPayout)}</div>
           </div>
         </div>
 
@@ -2402,7 +2413,7 @@ window.App = (function () {
 
         ${p.payoutStatus !== 'received' ? `
         <div class="row-end" style="margin-top:14px">
-          <button class="btn btn-success btn-sm" onclick="App.confirmCyberbizPayout('${p.id}',${p.summaryPayout||0})">✅ 確認 CyberBiz 撥款到帳</button>
+          <button class="btn btn-success btn-sm" onclick="App.confirmCyberbizPayout('${p.id}',${calculatedPayout})">✅ 確認 CyberBiz 撥款到帳</button>
         </div>` : `
         <div style="font-size:12px;color:var(--green);margin-top:12px">✅ 已於 ${U.fmt(p.actualPayoutDate)} 確認入帳 ${U.money(p.actualPayout)}</div>`}
       </div>`;
