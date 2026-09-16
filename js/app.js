@@ -98,7 +98,55 @@ window.App = (function () {
     U.el('modal-overlay').classList.add('hidden');
   }
 
-  let activeDashboardMonth = null;
+  let activeMonth = null;
+
+  function getAvailableMonths() {
+    const monthSet = new Set();
+    const thisMonth = U.today().slice(0, 7);
+    monthSet.add(thisMonth);
+    
+    D.Daily.getAll().forEach(r => { if (r.date) monthSet.add(r.date.slice(0, 7)); });
+    D.Linepay.getAll().forEach(p => { if (p.date) monthSet.add(p.date.slice(0, 7)); });
+    D.Taishin.getAll().forEach(p => { if (p.date) monthSet.add(p.date.slice(0, 7)); });
+    D.Uber.getAll().forEach(w => { if (w.weekStart) monthSet.add(w.weekStart.slice(0, 7)); if (w.weekEnd) monthSet.add(w.weekEnd.slice(0, 7)); });
+    D.Transfer.getAll().forEach(t => { if (t.expectedDate) monthSet.add(t.expectedDate.slice(0, 7)); });
+    D.Cyberbiz.getAll().forEach(p => {
+      if (p.periodStart) monthSet.add(p.periodStart.slice(0, 7));
+      if (p.periodEnd) monthSet.add(p.periodEnd.slice(0, 7));
+    });
+    
+    return Array.from(monthSet).filter(Boolean).sort().reverse();
+  }
+
+  function setGlobalMonth(month) {
+    activeMonth = month;
+    refreshCurrentPage(true);
+  }
+
+  function getDisplayMonth() {
+    const availableMonths = getAvailableMonths();
+    const thisMonth = U.today().slice(0, 7);
+    let displayMonth = activeMonth;
+    if (!displayMonth) {
+        const monthReportsCurrent = D.Daily.getAll().filter(r => r.date.startsWith(thisMonth));
+        displayMonth = (monthReportsCurrent.length === 0 && availableMonths.length > 1) ? availableMonths[1] : thisMonth;
+    }
+    if (!availableMonths.includes(displayMonth)) displayMonth = thisMonth;
+    activeMonth = displayMonth;
+    return displayMonth;
+  }
+
+  function renderMonthSelector(currentMonth, availableMonths) {
+    const thisMonth = U.today().slice(0, 7);
+    return `
+      <div style="display:flex;align-items:center;gap:6px">
+        <label style="font-size:11px;color:var(--text3);font-weight:normal">檢視月份：</label>
+        <select class="form-input form-input-sm" style="width:auto;padding:2px 8px;font-size:12px;background:var(--bg3);color:var(--text)" onchange="App.setGlobalMonth(this.value)">
+          ${availableMonths.map(m => `<option value="${m}" ${m === currentMonth ? 'selected' : ''}>${m.replace('-', '年')}月 ${m === thisMonth ? '(本月)' : ''}</option>`).join('')}
+        </select>
+      </div>
+    `;
+  }
 
   function showStoreRevenueModal(month) {
     const monthReports = D.Daily.getAll().filter(r => r.date.startsWith(month));
@@ -162,28 +210,10 @@ window.App = (function () {
     const todayReport = D.Daily.getByDate(today);
     const transfers = D.Transfer.getAll();
 
-    // Month totals — 門市營業額 (from daily reports)
     const thisMonth = today.slice(0, 7);
-
-    // Collect all unique months across all modules
-    const monthSet = new Set();
-    monthSet.add(thisMonth);
-    reports.forEach(r => { if (r.date) monthSet.add(r.date.slice(0, 7)); });
-    D.Linepay.getAll().forEach(p => { if (p.date) monthSet.add(p.date.slice(0, 7)); });
-    D.Cyberbiz.getAll().forEach(p => {
-      if (p.periodStart) monthSet.add(p.periodStart.slice(0, 7));
-      if (p.periodEnd) monthSet.add(p.periodEnd.slice(0, 7));
-    });
-    const availableMonths = Array.from(monthSet).filter(Boolean).sort().reverse();
-
-    if (targetMonth) {
-      activeDashboardMonth = targetMonth;
-    }
-
-    const monthReportsCurrent = reports.filter(r => r.date.startsWith(thisMonth));
-    let displayMonth = activeDashboardMonth || (monthReportsCurrent.length === 0 && availableMonths.length > 1 ? availableMonths[1] : thisMonth);
-    if (!availableMonths.includes(displayMonth)) displayMonth = thisMonth;
-    activeDashboardMonth = displayMonth;
+    const availableMonths = getAvailableMonths();
+    if (targetMonth) activeMonth = targetMonth;
+    const displayMonth = getDisplayMonth();
 
     const monthReports = reports.filter(r => r.date.startsWith(displayMonth));
     const storeMonthTotal = monthReports.reduce((s, r) => {
@@ -290,12 +320,7 @@ window.App = (function () {
           <span>📊 ${displayMonth.replace('-','年')}月 業績總覽</span>
           ${isCurrentMonth ? '<span class="badge badge-info" style="font-size:10px">本月</span>' : '<span class="badge badge-pending" style="font-size:10px">歷史月份</span>'}
         </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <label style="font-size:11px;color:var(--text3);font-weight:normal">檢視月份：</label>
-          <select class="form-input form-input-sm" style="width:auto;padding:2px 8px;font-size:12px;background:var(--bg3);color:var(--text)" onchange="App.navigate('dashboard', this.value)">
-            ${availableMonths.map(m => `<option value="${m}" ${m === displayMonth ? 'selected' : ''}>${m.replace('-', '年')}月 ${m === thisMonth ? '(本月)' : ''}</option>`).join('')}
-          </select>
-        </div>
+        ${renderMonthSelector(displayMonth, availableMonths)}
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
         <div class="big-stat" style="cursor:pointer;border:1.5px solid rgba(124,58,237,0.15)" onclick="App.showStoreRevenueModal('${displayMonth}')">
@@ -359,7 +384,9 @@ window.App = (function () {
      PAGE: DAILY REPORT LIST
   ═══════════════════════════════════════════ */
   function renderDailyList() {
-    const reports = D.Daily.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const reports = D.Daily.getAll().filter(r => r.date.startsWith(displayMonth));
     const rows = reports.length ? reports.map(r => {
       const o = r.onsite || {};
       const total = (o.cash||0)+(o.taishinCC||0)+(o.taishinAP||0)+(o.linePay||0)+(o.bankTransfer||0)+(o.uber||0);
@@ -383,6 +410,7 @@ window.App = (function () {
       <div>
         <div class="page-title">📋 每日報表</div>
         <div class="page-subtitle">所有每日現場收款記錄</div>
+        <div style="margin-top:8px">${renderMonthSelector(displayMonth, availableMonths)}</div>
       </div>
       <button class="btn btn-primary" onclick="App.navigate('daily-form','${U.today()}')">＋ 新增今日報表</button>
     </div>
@@ -609,8 +637,10 @@ window.App = (function () {
      PAGE: LINEPAY ONSITE
   ═══════════════════════════════════════════ */
   function renderLinepayOnsite() {
-    const payouts = D.Linepay.getAll();  // sorted desc by date
-    const allBatches = D.LinepayBatches.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const payouts = D.Linepay.getAll().filter(p => p.date.startsWith(displayMonth));  // sorted desc by date
+    const allBatches = D.LinepayBatches.getAll().filter(b => (b.actualDate || b.expectedDate || '').startsWith(displayMonth));
     const today = U.today();
     const feeRate = C.ONSITE_LINEPAY_FEE_RATE || 0.022;
     const taxRate = C.LINEPAY_TAX_RATE || 0.05;
@@ -717,9 +747,12 @@ window.App = (function () {
     const batchTableBody = batchRows.join('') || `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之批次記錄</td></tr>`;
 
     return `
-    <div class="page-header">
-      <div class="page-title">💚 現場 LinePay 對帳</div>
-      <div class="page-subtitle">同一預期撥款日加總合併核對・不改變前端記帳習慣・支援雙公司撥款與手續費獨立分流</div>
+    <div class="page-header row-between">
+      <div>
+        <div class="page-title">💚 現場 LinePay 對帳</div>
+        <div class="page-subtitle">同一預期撥款日加總合併核對・不改變前端記帳習慣・支援雙公司撥款與手續費獨立分流</div>
+      </div>
+      <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
     </div>
 
     <div class="stat-grid" style="margin-bottom:16px">
@@ -1020,7 +1053,9 @@ window.App = (function () {
      PAGE: TAISHIN
   ═══════════════════════════════════════════ */
   function renderTaishin() {
-    const payouts = D.Taishin.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const payouts = D.Taishin.getAll().filter(p => p.date.startsWith(displayMonth));
     const today = U.today();
     const settings = D.Settings.get();
 
@@ -1048,6 +1083,7 @@ window.App = (function () {
       <div>
         <div class="page-title">💳 台新信用卡 / Apple Pay 對帳</div>
         <div class="page-subtitle">T+${settings.taishinPayoutDays||1} 工作日撥款追蹤</div>
+        <div style="margin-top:8px">${renderMonthSelector(displayMonth, availableMonths)}</div>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="App.openTaishinSettings()">⚙ 設定撥款天數</button>
     </div>
@@ -1133,7 +1169,9 @@ window.App = (function () {
      PAGE: UBER EATS
   ═══════════════════════════════════════════ */
   function renderUber() {
-    const weeks = D.Uber.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const weeks = D.Uber.getAll().filter(w => (w.weekStart || '').startsWith(displayMonth) || (w.weekEnd || '').startsWith(displayMonth));
 
     const weekCards = weeks.length ? weeks.map(w => {
       const dailyRows = w.dailyOrders.sort((a,b) => a.date.localeCompare(b.date))
@@ -1191,9 +1229,12 @@ window.App = (function () {
     }).join('') : `<div class="empty-state" style="padding:48px"><div class="empty-icon">🛵</div><div class="empty-text">尚無 Uber Eats 資料</div><div class="empty-sub">在每日報表輸入 Uber 訂單金額後自動出現</div></div>`;
 
     return `
-    <div class="page-header">
-      <div class="page-title">🛵 Uber Eats 對帳</div>
-      <div class="page-subtitle">週結撥款追蹤（預設抽成 32%，活動期間可手動調整）</div>
+    <div class="page-header row-between">
+      <div>
+        <div class="page-title">🛵 Uber Eats 對帳</div>
+        <div class="page-subtitle">週結撥款追蹤（預設抽成 32%，活動期間可手動調整）</div>
+      </div>
+      <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
     </div>
     ${weekCards}`;
   }
@@ -1450,7 +1491,9 @@ window.App = (function () {
   ═══════════════════════════════════════════ */
   function renderTransfer() {
     D.Transfer.refreshStatus();
-    const transfers = D.Transfer.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const transfers = D.Transfer.getAll().filter(t => (t.expectedDate || t.actualDate || '').startsWith(displayMonth));
     const pending  = transfers.filter(t => t.status === 'pending');
     const overdue  = transfers.filter(t => t.status === 'overdue');
     const received = transfers.filter(t => t.status === 'received');
@@ -1481,6 +1524,7 @@ window.App = (function () {
       <div>
         <div class="page-title">🏦 匯款追蹤</div>
         <div class="page-subtitle">追蹤待收的銀行匯款，逾期自動標紅</div>
+        <div style="margin-top:8px">${renderMonthSelector(displayMonth, availableMonths)}</div>
       </div>
       <button class="btn btn-primary" onclick="App.openAddTransfer()">＋ 新增匯款</button>
     </div>
@@ -1596,7 +1640,9 @@ window.App = (function () {
      PAGE: CYBERBIZ OVERVIEW
   ═══════════════════════════════════════════ */
   function renderCyberbiz() {
-    const periods = D.Cyberbiz.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const periods = D.Cyberbiz.getAll().filter(p => (p.periodStart || '').startsWith(displayMonth) || (p.periodEnd || '').startsWith(displayMonth));
 
     const periodRows = periods.length ? periods.map(p => {
       const lp = p.linePay || {};
@@ -1619,9 +1665,12 @@ window.App = (function () {
     }).join('') : '';
 
     return `
-    <div class="page-header">
-      <div class="page-title">🌐 CyberBiz 官網對帳總覽</div>
-      <div class="page-subtitle">每月兩次（15號、月底）上傳 CyberBiz 對帳 Excel</div>
+    <div class="page-header row-between">
+      <div>
+        <div class="page-title">🌐 CyberBiz 官網對帳總覽</div>
+        <div class="page-subtitle">每月兩次（15號、月底）上傳 CyberBiz 對帳 Excel</div>
+      </div>
+      <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
     </div>
 
     <div class="section">
@@ -1794,13 +1843,18 @@ window.App = (function () {
   }
 
   function renderCyberbizLinepay() {
-    const periods = D.Cyberbiz.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const allPeriods = D.Cyberbiz.getAll();
+    const periods = allPeriods.filter(p => (p.periodStart || '').startsWith(displayMonth) || (p.periodEnd || '').startsWith(displayMonth));
 
-    if (!periods.length) {
+    if (allPeriods.length === 0) {
       return `
-      <div class="page-header">
-        <div class="page-title">💚 官網 LinePay 對帳</div>
-        <div class="page-subtitle">N+2 撥款追蹤・LinePay 手續費於撥款時扣除・系統維護費另見 CyberBiz 月結帳單</div>
+      <div class="page-header row-between">
+        <div>
+          <div class="page-title">💚 官網 LinePay 對帳</div>
+          <div class="page-subtitle">N+2 撥款追蹤・LinePay 手續費於撥款時扣除・系統維護費另見 CyberBiz 月結帳單</div>
+        </div>
       </div>
       <div class="empty-state" style="padding:60px">
         <div class="empty-icon">📂</div>
@@ -1811,7 +1865,7 @@ window.App = (function () {
       </div>`;
     }
 
-    const allBatches = getCbLinepayBatches();
+    const allBatches = getCbLinepayBatches().filter(b => (b.actualDate || b.payoutDate || '').startsWith(displayMonth));
     const confirmedSet = new Set(allBatches.map(b => b.payoutDate));
     const today = U.today();
 
@@ -1954,9 +2008,12 @@ window.App = (function () {
     const batchTableBody = batchRows.join('') || `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">無已核銷之撥款批次紀錄</td></tr>`;
 
     return `
-    <div class="page-header">
-      <div class="page-title">💚 官網 LinePay 對帳</div>
-      <div class="page-subtitle">同一預期撥款日加總合併核對・N+2 工作日撥款・自動計算實際手續費與撥款差額</div>
+    <div class="page-header row-between">
+      <div>
+        <div class="page-title">💚 官網 LinePay 對帳</div>
+        <div class="page-subtitle">同一預期撥款日加總合併核對・N+2 工作日撥款・自動計算實際手續費與撥款差額</div>
+      </div>
+      <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
     </div>
 
     <div class="stat-grid" style="margin-bottom:16px">
@@ -2265,12 +2322,17 @@ window.App = (function () {
      PAGE: CYBERBIZ PAYMENTS (credit/apple)
   ═══════════════════════════════════════════ */
   function renderCyberbizPayments() {
-    const periods = D.Cyberbiz.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const allPeriods = D.Cyberbiz.getAll();
+    const periods = allPeriods.filter(p => (p.periodStart || '').startsWith(displayMonth) || (p.periodEnd || '').startsWith(displayMonth));
 
-    if (!periods.length) {
+    if (allPeriods.length === 0) {
       return `
-      <div class="page-header">
-        <div class="page-title">💳 官網信用卡 / Apple Pay 對帳</div>
+      <div class="page-header row-between">
+        <div>
+          <div class="page-title">💳 官網信用卡 / Apple Pay 對帳</div>
+        </div>
       </div>
       <div class="empty-state" style="padding:60px">
         <div class="empty-icon">📂</div><div class="empty-text">請先上傳 CyberBiz 對帳 Excel</div>
@@ -2278,7 +2340,7 @@ window.App = (function () {
       </div>`;
     }
 
-    const periodSections = periods.map(p => {
+    const periodSections = periods.length ? periods.map(p => {
       const cp = p.cyberPayments || {};
       const breakdown = cp.breakdown || {};
 
@@ -2344,21 +2406,26 @@ window.App = (function () {
         </div>` : `
         <div style="font-size:12px;color:var(--green);margin-top:12px">✅ 已於 ${U.fmt(p.actualPayoutDate)} 確認入帳 ${U.money(p.actualPayout)}</div>`}
       </div>`;
-    }).join('');
+    }).join('') : '';
 
     return `
-    <div class="page-header">
-      <div class="page-title">💳 官網信用卡 / Apple Pay 對帳</div>
-      <div class="page-subtitle">Apple Pay 與 信用卡金流手續費及維護費精準計算至小數點後 1 位</div>
+    <div class="page-header row-between">
+      <div>
+        <div class="page-title">💳 官網信用卡 / Apple Pay 對帳</div>
+        <div class="page-subtitle">Apple Pay 與 信用卡金流手續費及維護費精準計算至小數點後 1 位</div>
+      </div>
+      <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
     </div>
-    ${periodSections}`;
+    ${periodSections || `<div class="empty-state"><div class="empty-text">此月份無資料</div></div>`}`;
   }
 
   /* ═══════════════════════════════════════════
      PAGE: CYBERBIZ COINS
   ═══════════════════════════════════════════ */
   function renderCyberbizCoins() {
-    const periods = D.Cyberbiz.getAll();
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const periods = D.Cyberbiz.getAll().filter(p => (p.periodStart || '').startsWith(displayMonth) || (p.periodEnd || '').startsWith(displayMonth));
     const allCoins = [];
     const catTotalsMap = {};
     let totalFromCat = 0;
@@ -2399,9 +2466,12 @@ window.App = (function () {
     </tr>`).join('') : `<tr><td colspan="5"><div class="empty-state" style="padding:32px"><div class="empty-icon">🪙</div><div class="empty-text">尚無 Cyber 幣資料</div></div></td></tr>`;
 
     return `
-    <div class="page-header">
-      <div class="page-title">🪙 Cyber 幣費用明細</div>
-      <div class="page-subtitle">CyberBiz 平台費用（黑貓出貨費、簡訊費等）與分類統計</div>
+    <div class="page-header row-between">
+      <div>
+        <div class="page-title">🪙 Cyber 幣費用明細</div>
+        <div class="page-subtitle">CyberBiz 平台費用（黑貓出貨費、簡訊費等）與分類統計</div>
+      </div>
+      <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
     </div>
 
     ${Object.entries(catTotalsMap).length ? `
