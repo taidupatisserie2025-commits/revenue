@@ -106,10 +106,24 @@ window.App = (function () {
     monthSet.add(thisMonth);
     
     D.Daily.getAll().forEach(r => { if (r.date) monthSet.add(r.date.slice(0, 7)); });
-    D.Linepay.getAll().forEach(p => { if (p.date) monthSet.add(p.date.slice(0, 7)); });
-    D.Taishin.getAll().forEach(p => { if (p.date) monthSet.add(p.date.slice(0, 7)); });
+    D.Linepay.getAll().forEach(p => { 
+      if (p.date) monthSet.add(p.date.slice(0, 7)); 
+      if (p.expectedPayoutDate) monthSet.add(p.expectedPayoutDate.slice(0, 7));
+    });
+    D.LinepayBatches.getAll().forEach(b => {
+      if (b.expectedDate) monthSet.add(b.expectedDate.slice(0, 7));
+      if (b.actualDate) monthSet.add(b.actualDate.slice(0, 7));
+    });
+    D.Taishin.getAll().forEach(p => { 
+      if (p.date) monthSet.add(p.date.slice(0, 7)); 
+      if (p.expectedPayoutDate) monthSet.add(p.expectedPayoutDate.slice(0, 7));
+      if (p.actualDate) monthSet.add(p.actualDate.slice(0, 7));
+    });
     D.Uber.getAll().forEach(w => { if (w.weekStart) monthSet.add(w.weekStart.slice(0, 7)); if (w.weekEnd) monthSet.add(w.weekEnd.slice(0, 7)); });
-    D.Transfer.getAll().forEach(t => { if (t.expectedDate) monthSet.add(t.expectedDate.slice(0, 7)); });
+    D.Transfer.getAll().forEach(t => { 
+      if (t.expectedDate) monthSet.add(t.expectedDate.slice(0, 7)); 
+      if (t.actualDate) monthSet.add(t.actualDate.slice(0, 7));
+    });
     D.Cyberbiz.getAll().forEach(p => {
       if (p.periodStart) monthSet.add(p.periodStart.slice(0, 7));
       if (p.periodEnd) monthSet.add(p.periodEnd.slice(0, 7));
@@ -639,7 +653,9 @@ window.App = (function () {
   function renderLinepayOnsite() {
     const displayMonth = getDisplayMonth();
     const availableMonths = getAvailableMonths();
-    const payouts = D.Linepay.getAll().filter(p => p.date.startsWith(displayMonth));  // sorted desc by date
+    const payouts = D.Linepay.getAll().filter(p => {
+      return (p.date || '').startsWith(displayMonth) || (p.expectedPayoutDate || '').startsWith(displayMonth);
+    });
     const allBatches = D.LinepayBatches.getAll().filter(b => (b.actualDate || b.expectedDate || '').startsWith(displayMonth));
     const today = U.today();
     const feeRate = C.ONSITE_LINEPAY_FEE_RATE || 0.022;
@@ -1055,7 +1071,11 @@ window.App = (function () {
   function renderTaishin() {
     const displayMonth = getDisplayMonth();
     const availableMonths = getAvailableMonths();
-    const payouts = D.Taishin.getAll().filter(p => p.date.startsWith(displayMonth));
+    const payouts = D.Taishin.getAll().filter(p => {
+      return (p.date || '').startsWith(displayMonth) || 
+             (p.expectedPayoutDate || '').startsWith(displayMonth) || 
+             (p.actualDate || '').startsWith(displayMonth);
+    });
     const today = U.today();
     const settings = D.Settings.get();
 
