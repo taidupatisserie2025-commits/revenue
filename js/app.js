@@ -1950,6 +1950,13 @@ window.App = (function () {
       });
     });
 
+    let monthTotalGross = 0;
+    Object.keys(allDaysMap).forEach(date => {
+       if (date.startsWith(displayMonth)) {
+          monthTotalGross += allDaysMap[date].grossTotal;
+       }
+    });
+
     const confirmedTotal = allBatches.reduce((s, b) => s + (b.actualNet || 0), 0);
     const confirmedCount = allBatches.length;
     const totalActualFee = allBatches.reduce((s, b) => s + (b.actualFee || 0), 0);
@@ -2041,6 +2048,11 @@ window.App = (function () {
     </div>
 
     <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat-card" style="border-color:rgba(59,130,246,0.3)">
+        <div class="stat-label">本月交易總額</div>
+        <div class="stat-value text-blue">${U.money(monthTotalGross)}</div>
+        <div class="stat-foot">發生於 ${displayMonth.replace('-','/')} 訂單</div>
+      </div>
       <div class="stat-card">
         <div class="stat-label">待撥款總額 (日累計)</div>
         <div class="stat-value text-amber">${U.money(pendingGross)}</div>
