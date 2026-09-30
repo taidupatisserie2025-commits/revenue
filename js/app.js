@@ -214,6 +214,63 @@ window.App = (function () {
     openModal('門市營業額通路分析', html);
   }
 
+  function showOnlineRevenueModal(month) {
+    const cyberbizPeriods = D.Cyberbiz.getAll().filter(p => {
+      return (p.periodStart || '').startsWith(month) || (p.periodEnd || '').startsWith(month);
+    });
+    
+    let lpTotal = 0;
+    let cpMethods = {};
+    
+    cyberbizPeriods.forEach(p => {
+      const lp = p.linePay || {};
+      lpTotal += Object.values(lp.daily || {}).reduce((s, d) => s + (d.grossTotal || 0), 0);
+      
+      const cp = p.cyberPayments || {};
+      const breakdown = cp.breakdown || {};
+      Object.entries(breakdown).forEach(([method, data]) => {
+        const name = method.replace('CYBERBIZ PAYMENTS ', '');
+        if (!cpMethods[name]) cpMethods[name] = 0;
+        cpMethods[name] += (data.total || 0);
+      });
+    });
+    
+    let cpTotal = 0;
+    const breakdownRows = Object.entries(cpMethods).map(([name, total]) => {
+      cpTotal += total;
+      return `
+        <div class="form-group" style="background:rgba(59,130,246,0.05); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(59,130,246,0.2)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">💳 ${name}</div>
+          <div style="font-size:18px; font-weight:700; color:var(--blue)">${U.money(total)}</div>
+        </div>
+      `;
+    }).join('');
+
+    const grandTotal = lpTotal + cpTotal;
+
+    const html = `
+      <div style="font-size:14px; color:var(--text); line-height:1.6; margin-bottom:16px;">
+        ${month.replace('-','年')}月 官網各通路營業額（共 ${cyberbizPeriods.length} 期對帳單）
+      </div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group" style="background:rgba(16,185,129,0.05); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(16,185,129,0.2)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">💚 LinePay</div>
+          <div style="font-size:18px; font-weight:700; color:var(--green)">${U.money(lpTotal)}</div>
+        </div>
+        ${breakdownRows}
+        <div class="form-group" style="background:var(--bg3); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border)">
+          <div style="font-size:12px; color:var(--text2); margin-bottom:4px;">總計</div>
+          <div style="font-size:18px; font-weight:700; color:var(--text)">${U.money(grandTotal)}</div>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:20px; text-align:right;">
+        <button class="btn" style="background:var(--bg3);color:var(--text);margin-right:10px" onclick="App.navigate('cyberbiz');App.closeModal();">前往官網對帳 ›</button>
+        <button class="btn btn-primary" onclick="App.closeModal()">確認</button>
+      </div>
+    `;
+    openModal('官網訂單營業額通路分析', html);
+  }
+
   /* ═══════════════════════════════════════════
      PAGE: DASHBOARD
   ═══════════════════════════════════════════ */
@@ -342,7 +399,7 @@ window.App = (function () {
           <div class="big-stat-value text-amber">${U.money(storeMonthTotal)}</div>
           <div class="big-stat-sub">每日報表累計・${monthReports.length} 天</div>
         </div>
-        <div class="big-stat" style="cursor:pointer;border:1.5px solid rgba(16,185,129,0.2)" onclick="App.navigate('cyberbiz')">
+        <div class="big-stat" style="cursor:pointer;border:1.5px solid rgba(16,185,129,0.2)" onclick="App.showOnlineRevenueModal('${displayMonth}')">
           <div class="big-stat-label">🌐 官網訂單營業額</div>
           <div class="big-stat-value text-green">${U.money(onlineOrderTotal)}</div>
           <div class="big-stat-sub">${cyberbizPeriods.length > 0 ? `已上傳 ${cyberbizPeriods.length} 期對帳單` : '尚未上傳官網對帳單'}</div>
@@ -2636,7 +2693,7 @@ window.App = (function () {
 
   /* Public API */
   return {
-    navigate, closeModal, openModal, toast, refreshCurrentPage, showStoreRevenueModal, setGlobalMonth,
+    navigate, closeModal, openModal, toast, refreshCurrentPage, showStoreRevenueModal, showOnlineRevenueModal, setGlobalMonth,
     // daily
     saveDailyForm, deleteDaily, openParseLineModal, doParseLineReportText,
     // linepay onsite
