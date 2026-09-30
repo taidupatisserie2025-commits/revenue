@@ -203,7 +203,7 @@ window.AppUtils = (function () {
             }
             result.linePay.daily[creditDate].canceledAmount += Math.abs(txAmount);
           }
-        } else if (payMethod.startsWith('CYBERBIZ PAYMENTS')) {
+        } else if (payMethod.startsWith('CYBERBIZ PAYMENTS') || payMethod.includes('虛擬帳')) {
           result.cyberPayments.total          += txAmount;
           result.cyberPayments.txFee          += txFee;
           result.cyberPayments.maintenanceFee += maintFee;

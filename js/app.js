@@ -1718,7 +1718,7 @@ window.App = (function () {
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>對帳期間</th><th>LinePay</th><th>信用卡/Apple Pay</th><th>手續費合計</th><th>Cyber幣</th><th>撥款金額</th><th>狀態</th><th>實際入帳</th><th></th>
+            <th>對帳期間</th><th>LinePay</th><th>信用卡/Apple Pay/虛擬帳戶</th><th>手續費合計</th><th>Cyber幣</th><th>撥款金額</th><th>狀態</th><th>實際入帳</th><th></th>
           </tr></thead>
           <tbody>${periodRows}</tbody>
         </table>
@@ -2355,7 +2355,7 @@ window.App = (function () {
       return `
       <div class="page-header row-between">
         <div>
-          <div class="page-title">💳 官網信用卡 / Apple Pay 對帳</div>
+          <div class="page-title">💳 官網金流對帳 (刷卡 / Apple Pay / 虛擬帳戶)</div>
         </div>
       </div>
       <div class="empty-state" style="padding:60px">
@@ -2442,7 +2442,7 @@ window.App = (function () {
     return `
     <div class="page-header row-between">
       <div>
-        <div class="page-title">💳 官網信用卡 / Apple Pay 對帳</div>
+        <div class="page-title">💳 官網金流對帳 (刷卡 / Apple Pay / 虛擬帳戶)</div>
         <div class="page-subtitle">Apple Pay 與 信用卡金流手續費及維護費精準計算至小數點後 1 位</div>
       </div>
       <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
