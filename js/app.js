@@ -2578,7 +2578,8 @@ window.App = (function () {
         </tr>`;
       }).join('');
 
-      const totalFee = (cp.txFee||0) + (cp.maintenanceFee||0);
+      const maintenanceFee = (cp.maintenanceFee||0) + (lp.maintenanceFee||0);
+      const totalFee = (cp.txFee||0) + maintenanceFee;
       const netPayout = (cp.total||0) - totalFee;
 
       return `
@@ -2599,7 +2600,7 @@ window.App = (function () {
           </div>
           <div class="week-stat">
             <div class="week-stat-label">系統維護費 (1%)</div>
-            <div class="week-stat-value text-red">−${U.money1(cp.maintenanceFee||0)}</div>
+            <div class="week-stat-value text-red">−${U.money1(maintenanceFee)}</div>
           </div>
           <div class="week-stat">
             <div class="week-stat-label">本期淨撥款</div>

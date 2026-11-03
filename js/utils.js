@@ -120,6 +120,25 @@ window.AppUtils = (function () {
     return (num >= 0 ? '+' : '') + 'NT$ ' + Math.abs(num).toLocaleString('zh-TW');
   }
 
+  // CyberBiz 對帳總表的 XLSX 匯出檔會把 <dimension> 範圍誤標成只有 A 欄（實際 B/C/D 欄都有資料），
+  // 導致 sheet_to_json 只讀到第一欄就跳過其餘欄位。這裡依實際存在的儲存格重算範圍再解析。
+  function fixSheetRange(sheet) {
+    if (!sheet) return sheet;
+    let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
+    Object.keys(sheet).forEach(key => {
+      if (key[0] === '!') return;
+      const addr = XLSX.utils.decode_cell(key);
+      if (addr.r < minR) minR = addr.r;
+      if (addr.c < minC) minC = addr.c;
+      if (addr.r > maxR) maxR = addr.r;
+      if (addr.c > maxC) maxC = addr.c;
+    });
+    if (maxR >= 0 && maxC >= 0) {
+      sheet['!ref'] = XLSX.utils.encode_range({ s: { r: minR, c: minC }, e: { r: maxR, c: maxC } });
+    }
+    return sheet;
+  }
+
   /* ── CyberBiz Excel Parser ── */
   function parseCyberbizExcel(workbook) {
     const result = {
@@ -133,7 +152,7 @@ window.AppUtils = (function () {
     };
 
     // ── 對帳總表 ──
-    const summarySheet = workbook.Sheets['對帳總表'];
+    const summarySheet = fixSheetRange(workbook.Sheets['對帳總表']);
     if (summarySheet) {
       const rows = XLSX.utils.sheet_to_json(summarySheet, { header: 1, defval: null });
       if (rows[0] && rows[0][0]) {
