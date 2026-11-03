@@ -371,18 +371,70 @@ window.AppData = (function () {
         writeDoc(K.UBER, all[idx]);
       }
     },
-    confirmPayout(id, amount, date, rate, notes) {
+    // 以 Uber 對帳單上的真實區間數字確認撥款（取代舊版「抽成%＋實收」估算法）
+    // stmt: { periodStart, periodEnd, orderCount, salesAmount, serviceFeeAmount,
+    //         marketingAmount, adjustmentAmount, netAmount, remittanceDate, statementMonth, notes }
+    confirmPayout(id, stmt) {
       const all = load(K.UBER);
       const idx = all.findIndex(w => w.id === id);
       if (idx >= 0) {
-        all[idx].actualPayout = amount;
-        all[idx].payoutDate = date;
-        all[idx].commissionRate = rate;
-        all[idx].notes = notes || '';
-        all[idx].estimatedPayout = Math.round(all[idx].totalOrderAmount * (1 - rate));
+        if (stmt.periodStart) all[idx].weekStart = stmt.periodStart;
+        if (stmt.periodEnd)   all[idx].weekEnd   = stmt.periodEnd;
+        all[idx].orderCount       = stmt.orderCount ?? null;
+        all[idx].salesAmount      = stmt.salesAmount ?? null;
+        all[idx].serviceFeeAmount = stmt.serviceFeeAmount ?? null;
+        all[idx].marketingAmount  = stmt.marketingAmount ?? 0;
+        all[idx].adjustmentAmount = stmt.adjustmentAmount ?? 0;
+        all[idx].actualPayout     = stmt.netAmount;
+        all[idx].payoutDate       = stmt.remittanceDate;
+        all[idx].statementMonth   = stmt.statementMonth || null;
+        all[idx].notes            = stmt.notes || '';
         all[idx].status = 'confirmed';
         save(K.UBER, all);
         writeDoc(K.UBER, all[idx]);
+        this._absorbPending(all[idx]);
+      }
+    },
+    // 直接登錄一筆對帳單區間（不經過預估週卡片），對應 Uber 月結單裡的某個結算區間
+    addPeriod(stmt) {
+      const id = 'uber_' + stmt.periodStart;
+      const all = load(K.UBER);
+      const item = {
+        id,
+        weekStart: stmt.periodStart,
+        weekEnd: stmt.periodEnd,
+        dailyOrders: [],
+        totalOrderAmount: stmt.salesAmount || 0,
+        commissionRate: AppConfig.UBER_DEFAULT_COMMISSION,
+        estimatedPayout: 0,
+        actualPayout: stmt.netAmount,
+        payoutDate: stmt.remittanceDate,
+        orderCount: stmt.orderCount ?? null,
+        salesAmount: stmt.salesAmount ?? null,
+        serviceFeeAmount: stmt.serviceFeeAmount ?? null,
+        marketingAmount: stmt.marketingAmount ?? 0,
+        adjustmentAmount: stmt.adjustmentAmount ?? 0,
+        statementMonth: stmt.statementMonth || null,
+        status: 'confirmed',
+        notes: stmt.notes || '',
+      };
+      const existingIdx = all.findIndex(w => w.id === id);
+      if (existingIdx >= 0) all[existingIdx] = item; else all.push(item);
+      save(K.UBER, all);
+      writeDoc(K.UBER, item);
+      this._absorbPending(item);
+    },
+    // 清掉已被這筆對帳區間完整涵蓋的「預估週」卡片，避免月結總額重複計算
+    _absorbPending(period) {
+      const all = load(K.UBER);
+      const kept = all.filter(w =>
+        w.id === period.id ||
+        w.status !== 'pending' ||
+        !(w.weekStart >= period.weekStart && w.weekEnd <= period.weekEnd)
+      );
+      if (kept.length !== all.length) {
+        save(K.UBER, kept);
+        all.forEach(w => { if (!kept.includes(w)) deleteDoc(K.UBER, w.id); });
       }
     },
     delete(id) {

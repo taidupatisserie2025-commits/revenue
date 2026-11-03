@@ -1251,26 +1251,40 @@ window.App = (function () {
     const weeks = D.Uber.getAll().filter(w => (w.weekStart || '').startsWith(displayMonth) || (w.weekEnd || '').startsWith(displayMonth));
 
     const weekCards = weeks.length ? weeks.map(w => {
+      const hasStatement = w.salesAmount != null;
+
       const dailyRows = w.dailyOrders.sort((a,b) => a.date.localeCompare(b.date))
         .map(d => `<tr><td>${U.fmt(d.date)}${U.fmtWeekday(d.date)}</td><td class="td-number td-right">${U.money(d.amount)}</td></tr>`).join('');
 
       const commissionAmt = Math.round(w.totalOrderAmount * (w.commissionRate || C.UBER_DEFAULT_COMMISSION));
       const estimatedPayout = w.totalOrderAmount - commissionAmt;
 
-      return `
-      <div class="week-card">
-        <div class="week-header">
-          <div>
-            <div class="week-title">${U.fmtWeek(w.weekStart, w.weekEnd)}</div>
-            <div class="week-range" style="margin-top:2px">${U.fmtWeekday(w.weekStart).replace('（','').replace('）','')} 一 ～ 日</div>
+      const statsHtml = hasStatement ? `
+          <div class="week-stat">
+            <div class="week-stat-label">銷售額${w.orderCount != null ? `（${w.orderCount} 訂單）` : ''}</div>
+            <div class="week-stat-value text-green">${U.money(w.salesAmount)}</div>
           </div>
-          <div class="row" style="gap:8px">
-            ${U.statusBadge(w.status)}
-            ${w.status === 'pending' ? `<button class="btn btn-success btn-sm" onclick="App.confirmUber('${w.id}',${w.totalOrderAmount},${w.commissionRate||C.UBER_DEFAULT_COMMISSION})">確認撥款</button>` : ''}
-            <button class="btn btn-danger btn-sm btn-icon" onclick="App.deleteUberWeek('${w.id}')">🗑</button>
+          <div class="week-stat">
+            <div class="week-stat-label">Uber 服務費</div>
+            <div class="week-stat-value text-red">−${U.money(w.serviceFeeAmount)}</div>
           </div>
-        </div>
-        <div class="week-stats">
+          ${w.marketingAmount ? `<div class="week-stat">
+            <div class="week-stat-label">行銷支出</div>
+            <div class="week-stat-value text-red">−${U.money(w.marketingAmount)}</div>
+          </div>` : ''}
+          ${w.adjustmentAmount ? `<div class="week-stat">
+            <div class="week-stat-label">修正</div>
+            <div class="week-stat-value ${w.adjustmentAmount >= 0 ? 'text-green' : 'text-red'}">${U.moneySign(w.adjustmentAmount)}</div>
+          </div>` : ''}
+          <div class="week-stat">
+            <div class="week-stat-label">淨費用（實收）</div>
+            <div class="week-stat-value text-green">${U.money(w.actualPayout)}</div>
+          </div>
+          ${w.payoutDate ? `<div class="week-stat">
+            <div class="week-stat-label">已開始匯款</div>
+            <div class="week-stat-value">${U.fmt(w.payoutDate)}</div>
+          </div>` : ''}
+        ` : `
           <div class="week-stat">
             <div class="week-stat-label">訂單總額</div>
             <div class="week-stat-value text-green">${U.money(w.totalOrderAmount)}</div>
@@ -1291,70 +1305,176 @@ window.App = (function () {
             <div class="week-stat-label">差異</div>
             <div class="week-stat-value ${w.actualPayout-estimatedPayout >= 0 ? 'text-green' : 'text-red'}">${U.moneySign(w.actualPayout-estimatedPayout)}</div>
           </div>` : ''}
+        `;
+
+      return `
+      <div class="week-card">
+        <div class="week-header">
+          <div>
+            <div class="week-title">${U.fmtWeek(w.weekStart, w.weekEnd)}</div>
+            <div class="week-range" style="margin-top:2px">${w.statementMonth ? `對帳單：${w.statementMonth}` : (U.fmtWeekday(w.weekStart).replace('（','').replace('）','') + ' 一 ～ 日')}</div>
+          </div>
+          <div class="row" style="gap:8px">
+            ${U.statusBadge(w.status)}
+            ${w.status === 'pending' ? `<button class="btn btn-success btn-sm" onclick="App.confirmUber('${w.id}')">登錄對帳單</button>` : ''}
+            <button class="btn btn-danger btn-sm btn-icon" onclick="App.deleteUberWeek('${w.id}')">🗑</button>
+          </div>
         </div>
+        <div class="week-stats">${statsHtml}</div>
         ${w.notes ? `<div style="font-size:12px;color:var(--text2);margin-bottom:12px">📝 ${w.notes}</div>` : ''}
-        <details style="margin-top:4px">
+        ${dailyRows ? `<details style="margin-top:4px">
           <summary style="font-size:12px;color:var(--text3);cursor:pointer;user-select:none">每日明細</summary>
           <div class="table-wrap" style="margin-top:8px">
             <table style="width:auto">
               <thead><tr><th>日期</th><th>訂單金額</th></tr></thead>
-              <tbody>${dailyRows || '<tr><td colspan="2" style="color:var(--text3);text-align:center;padding:12px">無明細</td></tr>'}</tbody>
+              <tbody>${dailyRows}</tbody>
             </table>
           </div>
-        </details>
+        </details>` : ''}
       </div>`;
-    }).join('') : `<div class="empty-state" style="padding:48px"><div class="empty-icon">🛵</div><div class="empty-text">尚無 Uber Eats 資料</div><div class="empty-sub">在每日報表輸入 Uber 訂單金額後自動出現</div></div>`;
+    }).join('') : `<div class="empty-state" style="padding:48px"><div class="empty-icon">🛵</div><div class="empty-text">尚無 Uber Eats 資料</div><div class="empty-sub">在每日報表輸入 Uber 訂單金額後自動出現，或直接登錄對帳單區間</div></div>`;
 
     return `
     <div class="page-header row-between">
       <div>
         <div class="page-title">🛵 Uber Eats 對帳</div>
-        <div class="page-subtitle">週結撥款追蹤（預設抽成 32%，活動期間可手動調整）</div>
+        <div class="page-subtitle">Uber 現為每月出一份合併帳單，底下仍分 2 個結算區間各自匯款</div>
       </div>
-      <div>${renderMonthSelector(displayMonth, availableMonths)}</div>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="App.addUberPeriod()">＋ 登錄對帳單區間</button>
+        ${renderMonthSelector(displayMonth, availableMonths)}
+      </div>
     </div>
     ${weekCards}`;
   }
 
-  function confirmUber(id, totalAmount, currentRate) {
-    openModal('確認 Uber Eats 週結撥款', `
+  function uberStatementFormHtml(w) {
+    const periodStart = w ? w.weekStart : '';
+    const periodEnd   = w ? w.weekEnd   : '';
+    return `
       <div class="form-grid" style="gap:14px">
-        <div class="form-group">
-          <label class="form-label">本週 Uber 抽成比例（%）</label>
-          <input type="number" id="uber-rate" class="form-input" value="${Math.round(currentRate*100)}" min="1" max="99" step="1">
-          <div class="form-hint">一般為 32%，買一送一活動期間可能不同</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Uber 實際撥款金額</label>
-          <div class="input-with-prefix">
-            <span class="input-prefix">NT$</span>
-            <input type="number" id="uber-actual" class="form-input input-money" placeholder="實際撥款金額">
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label class="form-label">費用期間起</label>
+            <input type="date" id="uber-period-start" class="form-input" value="${periodStart}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">費用期間迄</label>
+            <input type="date" id="uber-period-end" class="form-input" value="${periodEnd}">
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">撥款日期</label>
-          <input type="date" id="uber-payout-date" class="form-input" value="${U.today()}">
+          <label class="form-label">所屬月結單（選填，例：2026-09）</label>
+          <input type="text" id="uber-statement-month" class="form-input" placeholder="2026-09" value="${w && w.statementMonth || ''}">
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label class="form-label">訂單數</label>
+            <input type="number" id="uber-order-count" class="form-input" min="0" value="${w && w.orderCount != null ? w.orderCount : ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">銷售額（總行程費用）</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix">NT$</span>
+              <input type="number" id="uber-sales" class="form-input input-money" value="${w && w.salesAmount != null ? w.salesAmount : (w ? w.totalOrderAmount : '')}">
+            </div>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Uber 服務費總額</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix">NT$</span>
+              <input type="number" id="uber-service-fee" class="form-input input-money" placeholder="帳單上為負數，這裡輸入正數" value="${w && w.serviceFeeAmount != null ? w.serviceFeeAmount : ''}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">行銷支出總額（選填）</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix">NT$</span>
+              <input type="number" id="uber-marketing" class="form-input input-money" value="${w && w.marketingAmount || ''}">
+            </div>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label class="form-label">修正金額（選填，可為負）</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix">NT$</span>
+              <input type="number" id="uber-adjustment" class="form-input input-money" value="${w && w.adjustmentAmount || ''}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">淨費用（實收）</label>
+            <div class="input-with-prefix">
+              <span class="input-prefix">NT$</span>
+              <input type="number" id="uber-net" class="form-input input-money" value="${w && w.actualPayout != null ? w.actualPayout : ''}">
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">已開始匯款日期</label>
+          <input type="date" id="uber-remit-date" class="form-input" value="${(w && w.payoutDate) || U.today()}">
         </div>
         <div class="form-group">
           <label class="form-label">備注（選填）</label>
-          <input type="text" id="uber-notes" class="form-input" placeholder="例：買一送一活動週">
+          <input type="text" id="uber-notes" class="form-input" placeholder="例：買一送一活動期間" value="${w && w.notes || ''}">
         </div>
-      </div>
+      </div>`;
+  }
+
+  function readUberStatementForm() {
+    return {
+      periodStart:      U.el('uber-period-start').value,
+      periodEnd:         U.el('uber-period-end').value,
+      statementMonth:    U.el('uber-statement-month').value.trim(),
+      orderCount:        U.el('uber-order-count').value === '' ? null : Number(U.el('uber-order-count').value),
+      salesAmount:       Number(U.el('uber-sales').value) || 0,
+      serviceFeeAmount:  Number(U.el('uber-service-fee').value) || 0,
+      marketingAmount:   Number(U.el('uber-marketing').value) || 0,
+      adjustmentAmount:  Number(U.el('uber-adjustment').value) || 0,
+      netAmount:         Number(U.el('uber-net').value),
+      remittanceDate:    U.el('uber-remit-date').value,
+      notes:             U.el('uber-notes').value,
+    };
+  }
+
+  function confirmUber(id) {
+    const w = D.Uber.getById(id);
+    openModal('登錄 Uber Eats 對帳單', `
+      ${uberStatementFormHtml(w)}
       <div class="row-end" style="margin-top:20px">
         <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
-        <button class="btn btn-success" onclick="App.doConfirmUber('${id}',${totalAmount})">✅ 確認撥款</button>
+        <button class="btn btn-success" onclick="App.doConfirmUber('${id}')">✅ 確認登錄</button>
       </div>`);
   }
 
-  function doConfirmUber(id, totalAmount) {
-    const rate   = Number(U.el('uber-rate').value) / 100;
-    const actual = Number(U.el('uber-actual').value);
-    const date   = U.el('uber-payout-date').value;
-    const notes  = U.el('uber-notes').value;
-    if (isNaN(actual) || actual <= 0) return toast('請輸入有效撥款金額', 'error');
-    D.Uber.confirmPayout(id, actual, date, rate, notes);
+  function doConfirmUber(id) {
+    const stmt = readUberStatementForm();
+    if (!stmt.periodStart || !stmt.periodEnd) return toast('請選擇費用期間', 'error');
+    if (isNaN(stmt.netAmount)) return toast('請輸入淨費用金額', 'error');
+    D.Uber.confirmPayout(id, stmt);
     closeModal();
-    toast('Uber 撥款已確認', 'success');
+    toast('Uber 對帳單已登錄', 'success');
+    navigate('uber');
+  }
+
+  function addUberPeriod() {
+    openModal('登錄 Uber Eats 對帳單區間', `
+      ${uberStatementFormHtml(null)}
+      <div class="row-end" style="margin-top:20px">
+        <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
+        <button class="btn btn-success" onclick="App.doAddUberPeriod()">✅ 新增</button>
+      </div>`);
+  }
+
+  function doAddUberPeriod() {
+    const stmt = readUberStatementForm();
+    if (!stmt.periodStart || !stmt.periodEnd) return toast('請選擇費用期間', 'error');
+    if (isNaN(stmt.netAmount)) return toast('請輸入淨費用金額', 'error');
+    D.Uber.addPeriod(stmt);
+    closeModal();
+    toast('Uber 對帳單區間已新增', 'success');
     navigate('uber');
   }
 
@@ -2702,7 +2822,7 @@ window.App = (function () {
     // taishin
     confirmTaishin, doConfirmTaishin, openTaishinSettings, saveTaishinSettings,
     // uber
-    confirmUber, doConfirmUber, deleteUberWeek,
+    confirmUber, doConfirmUber, deleteUberWeek, addUberPeriod, doAddUberPeriod,
     // cash
     openCashClose, openDepositToBank, saveDepositToBank, updateCashRemaining,
     saveCashClose, deleteCash, loadCashReported,
