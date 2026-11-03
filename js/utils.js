@@ -88,6 +88,17 @@ window.AppUtils = (function () {
     return fmtShort(weekStart) + ' ～ ' + fmtShort(weekEnd);
   }
 
+  /* Get first and last day of the calendar month containing dateStr */
+  function getMonthBounds(dateStr) {
+    const parts = dateStr.split('-').map(Number);
+    const first = new Date(parts[0], parts[1] - 1, 1);
+    const last = new Date(parts[0], parts[1], 0);
+    return [
+      toYMD(first),
+      toYMD(last),
+    ];
+  }
+
   /* ── Currency ── */
   function money(n) {
     if (n === null || n === undefined || n === '') return '—';
@@ -365,7 +376,7 @@ window.AppUtils = (function () {
   return {
     today, fmt, fmtShort, fmtWeekday, fmtDatetime,
     isWeekend, isHoliday, isBusinessDay, addBusinessDays,
-    getWeekBounds, fmtWeek,
+    getWeekBounds, getMonthBounds, fmtWeek,
     money, money1, moneySign,
     parseCyberbizExcel, parseLineReportText,
     el, setInner, escHtml, statusBadge,

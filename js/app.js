@@ -341,7 +341,7 @@ window.App = (function () {
       alerts.push({ type: 'danger', icon: '🏦', title: `匯款逾期：${t.description}`, sub: `預計到帳 ${U.fmt(t.expectedDate)}，金額 ${U.money(t.expectedAmount)}`, page: 'transfer' });
     });
     uberPending.forEach(w => {
-      alerts.push({ type: 'warning', icon: '🛵', title: `Uber 週結待確認：${U.fmtWeek(w.weekStart, w.weekEnd)}`, sub: `訂單總額 ${U.money(w.totalOrderAmount)}，預估實收 ${U.money(w.estimatedPayout)}`, page: 'uber' });
+      alerts.push({ type: 'warning', icon: '🛵', title: `Uber 月結待確認：${U.fmtWeek(w.weekStart, w.weekEnd)}`, sub: `訂單總額 ${U.money(w.totalOrderAmount)}，預估實收 ${U.money(w.estimatedPayout)}`, page: 'uber' });
     });
 
     const alertsHtml = alerts.length ? alerts.map(a => `
@@ -1312,7 +1312,7 @@ window.App = (function () {
         <div class="week-header">
           <div>
             <div class="week-title">${U.fmtWeek(w.weekStart, w.weekEnd)}</div>
-            <div class="week-range" style="margin-top:2px">${w.statementMonth ? `對帳單：${w.statementMonth}` : (U.fmtWeekday(w.weekStart).replace('（','').replace('）','') + ' 一 ～ 日')}</div>
+            <div class="week-range" style="margin-top:2px">${w.statementMonth ? `對帳單：${w.statementMonth}` : '本月預估（尚未有對帳單）'}</div>
           </div>
           <div class="row" style="gap:8px">
             ${U.statusBadge(w.status)}

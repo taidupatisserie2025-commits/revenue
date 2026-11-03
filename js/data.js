@@ -331,7 +331,7 @@ window.AppData = (function () {
     getAll() { return load(K.UBER).sort((a,b) => b.weekStart.localeCompare(a.weekStart)); },
     getById(id) { return load(K.UBER).find(w => w.id === id) || null; },
     getByDate(date) {
-      const [ws] = AppUtils.getWeekBounds(date);
+      const [ws] = AppUtils.getMonthBounds(date);
       return load(K.UBER).find(w => w.weekStart === ws) || null;
     },
     upsertWeek(weekStart, weekEnd) {
@@ -356,7 +356,7 @@ window.AppData = (function () {
       }
     },
     addDayAmount(date, amount) {
-      const [ws, we] = AppUtils.getWeekBounds(date);
+      const [ws, we] = AppUtils.getMonthBounds(date);
       this.upsertWeek(ws, we);
       const all = load(K.UBER);
       const idx = all.findIndex(w => w.weekStart === ws);
