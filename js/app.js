@@ -99,6 +99,7 @@ window.App = (function () {
   }
 
   let activeMonth = null;
+  let cbLpMergeSelection = new Set();
 
   function getAvailableMonths() {
     const monthSet = new Set();
@@ -2043,32 +2044,21 @@ window.App = (function () {
     return list;
   }
 
-  function renderCyberbizLinepay() {
-    const displayMonth = getDisplayMonth();
-    const availableMonths = getAvailableMonths();
+  // 彙整「待核對 LinePay 撥款」清單：依預計撥款日(N+2)自動分組，
+  // 並排除已核銷批次所涵蓋的撥款日（含手動合併批次的 mergedPayoutDates）
+  function getCbLinepayPending(displayMonth) {
     const allPeriods = D.Cyberbiz.getAll();
     const periods = allPeriods.filter(p => (p.periodStart || '').startsWith(displayMonth) || (p.periodEnd || '').startsWith(displayMonth));
+    const everyBatch = getCbLinepayBatches();
+    const allBatches = everyBatch.filter(b => (b.actualDate || b.payoutDate || '').startsWith(displayMonth));
 
-    if (allPeriods.length === 0) {
-      return `
-      <div class="page-header row-between">
-        <div>
-          <div class="page-title">💚 官網 LinePay 對帳</div>
-          <div class="page-subtitle">N+2 撥款追蹤・LinePay 手續費於撥款時扣除・系統維護費另見 CyberBiz 月結帳單</div>
-        </div>
-      </div>
-      <div class="empty-state" style="padding:60px">
-        <div class="empty-icon">📂</div>
-        <div class="empty-text">請先上傳 CyberBiz 對帳 Excel</div>
-        <div class="empty-sub" style="margin-top:10px">
-          <button class="btn btn-primary btn-sm" onclick="App.navigate('cyberbiz')">前往上傳 ›</button>
-        </div>
-      </div>`;
-    }
-
-    const allBatches = getCbLinepayBatches().filter(b => (b.actualDate || b.payoutDate || '').startsWith(displayMonth));
-    const confirmedSet = new Set(allBatches.map(b => b.payoutDate));
-    const today = U.today();
+    // 合併批次的實際入帳日可能落到下個月，所以排除已核對撥款日時要看「所有批次」，
+    // 不能只看當前月份篩選後的 allBatches，否則合併後的日期在換月檢視時會又變回「待核對」
+    const confirmedSet = new Set();
+    everyBatch.forEach(b => {
+      const dates = (b.mergedPayoutDates && b.mergedPayoutDates.length) ? b.mergedPayoutDates : [b.payoutDate];
+      dates.forEach(d => confirmedSet.add(d));
+    });
 
     // Collect all daily entries across all uploaded Cyberbiz Excel periods
     const allDaysMap = {};
@@ -2112,6 +2102,34 @@ window.App = (function () {
         pendingDayCount++;
       }
     });
+
+    return { periods, allBatches, allDaysMap, pendingGroups, pendingDayCount };
+  }
+
+  function renderCyberbizLinepay() {
+    const displayMonth = getDisplayMonth();
+    const availableMonths = getAvailableMonths();
+    const allPeriods = D.Cyberbiz.getAll();
+
+    if (allPeriods.length === 0) {
+      return `
+      <div class="page-header row-between">
+        <div>
+          <div class="page-title">💚 官網 LinePay 對帳</div>
+          <div class="page-subtitle">N+2 撥款追蹤・LinePay 手續費於撥款時扣除・系統維護費另見 CyberBiz 月結帳單</div>
+        </div>
+      </div>
+      <div class="empty-state" style="padding:60px">
+        <div class="empty-icon">📂</div>
+        <div class="empty-text">請先上傳 CyberBiz 對帳 Excel</div>
+        <div class="empty-sub" style="margin-top:10px">
+          <button class="btn btn-primary btn-sm" onclick="App.navigate('cyberbiz')">前往上傳 ›</button>
+        </div>
+      </div>`;
+    }
+
+    const { allBatches, allDaysMap, pendingGroups, pendingDayCount } = getCbLinepayPending(displayMonth);
+    const today = U.today();
 
     const sortedPendingPayoutDates = Object.keys(pendingGroups).sort((a,b) => b.localeCompare(a));
 
@@ -2170,6 +2188,9 @@ window.App = (function () {
           </td>
           <td rowspan="${groupSize}" style="vertical-align:middle;text-align:center">
             <button class="btn btn-success btn-sm" onclick="App.confirmCbLinepay('${payoutDate}',${combinedGross},${combinedFee},${combinedNet},'${datesCsv}')">確認撥款入帳</button>
+          </td>
+          <td rowspan="${groupSize}" style="vertical-align:middle;text-align:center">
+            <input type="checkbox" class="cb-lp-merge-checkbox" onchange="App.toggleCbLpMergeSelect('${payoutDate}',this.checked)" ${cbLpMergeSelection.has(payoutDate) ? 'checked' : ''}>
           </td>`;
         }
 
@@ -2178,7 +2199,25 @@ window.App = (function () {
       });
     });
 
-    const pendingTableBody = pendingRowsList.join('') || `<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text3)">🎉 當前無待核對之官網 LinePay 撥款項目</td></tr>`;
+    const pendingTableBody = pendingRowsList.join('') || `<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text3)">🎉 當前無待核對之官網 LinePay 撥款項目</td></tr>`;
+
+    // 手動合併工具列：因放假等因素，LinePay 實際撥款有時會把多個預計撥款日合併成一筆入帳，
+    // 系統算出來的 N+2 分組對不上時，可手動勾選要合併的撥款日
+    const validSelection = Array.from(cbLpMergeSelection).filter(d => pendingGroups[d]);
+    if (validSelection.size !== cbLpMergeSelection.size) {
+      cbLpMergeSelection = new Set(validSelection);
+    }
+    const mergeToolbar = `
+    <div class="row-between" style="align-items:center;margin-bottom:8px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <div style="font-size:12px;color:var(--text2)">
+        ☑️ 勾選表格最右側的核取方塊可手動合併多個撥款日（例如放假導致 LinePay 實際合併入帳時使用）
+        ${cbLpMergeSelection.size > 0 ? `・已勾選 <strong>${cbLpMergeSelection.size}</strong> 個撥款日` : ''}
+      </div>
+      <div class="row" style="gap:8px">
+        ${cbLpMergeSelection.size > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.clearCbLpMergeSelection()">清除勾選</button>` : ''}
+        <button class="btn btn-primary btn-sm" ${cbLpMergeSelection.size < 2 ? 'disabled' : ''} onclick="App.mergeCbLpSelected()">🔗 合併勾選的撥款日</button>
+      </div>
+    </div>`;
 
     // 2. Confirmed Table Rows
     const batchRows = [];
@@ -2275,6 +2314,7 @@ window.App = (function () {
 
     <!-- 待核對清單 -->
     <div class="section-title" style="margin:20px 0 8px;font-size:14px;font-weight:700">⏳ 待核對撥款 (依預計撥款日合併)</div>
+    ${mergeToolbar}
     <div class="table-wrap" style="margin-bottom:28px">
       <table>
         <thead><tr>
@@ -2287,6 +2327,7 @@ window.App = (function () {
           <th>預估合併淨額</th>
           <th>預計撥款日(N+2)</th>
           <th style="text-align:center">操作</th>
+          <th style="text-align:center">手動合併</th>
         </tr></thead>
         <tbody>${pendingTableBody}</tbody>
       </table>
@@ -2313,13 +2354,51 @@ window.App = (function () {
     `;
   }
 
-  function confirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv) {
+  function toggleCbLpMergeSelect(payoutDate, checked) {
+    if (checked) cbLpMergeSelection.add(payoutDate);
+    else cbLpMergeSelection.delete(payoutDate);
+    refreshCurrentPage(true);
+  }
+
+  function clearCbLpMergeSelection() {
+    cbLpMergeSelection.clear();
+    refreshCurrentPage(true);
+  }
+
+  function mergeCbLpSelected() {
+    if (cbLpMergeSelection.size < 2) {
+      return toast('請至少勾選 2 個撥款日才能合併', 'error');
+    }
+    const { pendingGroups } = getCbLinepayPending(getDisplayMonth());
+    const selectedDates = Array.from(cbLpMergeSelection).filter(d => pendingGroups[d]).sort();
+    if (selectedDates.length < 2) {
+      return toast('勾選的撥款日已不存在，請重新勾選', 'error');
+    }
+
+    let combinedGross = 0, combinedFee = 0;
+    const dayLabels = [];
+    selectedDates.forEach(payoutDate => {
+      pendingGroups[payoutDate].forEach(item => {
+        combinedGross += item.grossTotal;
+        combinedFee   += item.feeAndTax;
+        dayLabels.push(`${U.fmtShort(item.date)}${U.fmtWeekday(item.date)}`);
+      });
+    });
+    const combinedNet = combinedGross - combinedFee;
+    const primaryDate = selectedDates[selectedDates.length - 1]; // 以最晚的預計撥款日作為實際入帳日基準
+
+    confirmCbLinepay(primaryDate, combinedGross, combinedFee, combinedNet, dayLabels.join(', '), selectedDates.join(','));
+  }
+
+  function confirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv, mergedDatesCsv) {
     const today = U.today();
     const defaultDate = payoutDate <= today ? payoutDate : today;
+    const mergedDates = mergedDatesCsv ? mergedDatesCsv.split(',').filter(Boolean) : [payoutDate];
 
     openModal('確認官網 LinePay 撥款入帳', `
       <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.6">
         預計撥款日：<strong style="color:var(--text)">${U.fmt(payoutDate)}${U.fmtWeekday(payoutDate)}</strong><br>
+        ${mergedDates.length > 1 ? `<div style="margin:2px 0;color:var(--amber)">🔗 手動合併了 ${mergedDates.length} 個預計撥款日：${mergedDates.map(d => U.fmtShort(d)).join('、')}</div>` : ''}
         包含交易日：<strong style="color:var(--purple-light)">${datesCsv}</strong><br>
         預估交易總額：<strong style="color:var(--green)">${U.money(expectedGross)}</strong> ｜ 預估應收淨額：<strong style="color:var(--purple-light)">${U.money(expectedNet)}</strong>
         <div style="margin-top:6px;padding:5px 8px;background:rgba(245,158,11,0.08);border-radius:4px;color:var(--amber);font-size:11px">⚠️ 預估金額不含沖銷扣款，實際金額請依 LINE Pay APP 明細為準</div>
@@ -2411,7 +2490,7 @@ window.App = (function () {
 
       <div class="row-end">
         <button class="btn btn-ghost" onclick="App.closeModal()">取消</button>
-        <button class="btn btn-success" onclick="App.doConfirmCbLinepay('${payoutDate}',${expectedGross},${expectedFee},${expectedNet},'${datesCsv}')">✅ 確認撥款入帳</button>
+        <button class="btn btn-success" onclick="App.doConfirmCbLinepay('${payoutDate}',${expectedGross},${expectedFee},${expectedNet},'${datesCsv}','${mergedDates.join(',')}')">✅ 確認撥款入帳</button>
       </div>`);
   }
 
@@ -2423,7 +2502,8 @@ window.App = (function () {
     }
   }
 
-  function doConfirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv) {
+  function doConfirmCbLinepay(payoutDate, expectedGross, expectedFee, expectedNet, datesCsv, mergedDatesCsv) {
+    const mergedPayoutDates = mergedDatesCsv ? mergedDatesCsv.split(',').filter(Boolean) : [payoutDate];
     const accountConfirmed = U.el('cb-lp-account-confirm')?.checked;
     const cardConfirmed    = U.el('cb-lp-card-confirm')?.checked;
 
@@ -2469,6 +2549,7 @@ window.App = (function () {
       saveBatch({
         id: 'cb_lp_batch_account_' + payoutDate,
         payoutDate,
+        mergedPayoutDates,
         actualDate: accountDate,
         channel: 'account',
         datesCsv,
@@ -2493,6 +2574,7 @@ window.App = (function () {
       saveBatch({
         id: 'cb_lp_batch_card_' + payoutDate,
         payoutDate,
+        mergedPayoutDates,
         actualDate: cardDate,
         channel: 'card',
         datesCsv,
@@ -2510,6 +2592,7 @@ window.App = (function () {
     }
 
     localStorage.setItem('ta_cb_linepay_batches', JSON.stringify(batches));
+    cbLpMergeSelection.clear();
     closeModal();
     toast('✅ 官網 LinePay 撥款已確認入帳', 'success');
     navigate('cyberbiz-linepay');
@@ -2833,6 +2916,7 @@ window.App = (function () {
     handleCyberbizUpload, handleCyberbizDrop, confirmCyberbizPayout, doConfirmCyberbiz, deleteCyberbiz, clearCyberbizData,
     // cyberbiz linepay
     confirmCbLinepay, doConfirmCbLinepay, deleteCbLinepayBatch, toggleCbLpSection,
+    toggleCbLpMergeSelect, clearCbLpMergeSelection, mergeCbLpSelected,
     // backup & restore
     exportBackup, handleBackupUpload,
   };
