@@ -22,9 +22,10 @@ window.App = (function () {
   function handleRoute() {
     const hash = location.hash.replace('#', '') || 'dashboard';
     const [page, ...rest] = hash.split('/');
+    const isSamePageRefresh = (page === currentPage);
     currentPage = page;
     updateNav(page);
-    renderPage(page, rest.join('/'));
+    renderPage(page, rest.join('/'), isSamePageRefresh);
   }
 
   function isUserEditing() {
@@ -47,7 +48,7 @@ window.App = (function () {
     });
   }
 
-  function renderPage(page, params) {
+  function renderPage(page, params, isSamePageRefresh) {
     const el = U.el('page-content');
     if (!el) return;
     const pages = {
@@ -65,7 +66,9 @@ window.App = (function () {
       'cyberbiz-coins':   renderCyberbizCoins,
     };
     const fn = pages[page] || (() => renderDashboard(params));
-    el.innerHTML = `<div class="page-enter">${fn(params)}</div>`;
+    const html = fn(params);
+    // 只有「真的換頁」才套滑入動畫；同一頁重繪（背景同步、確認操作後、勾選框等）直接更新內容，避免每次都閃一下
+    el.innerHTML = isSamePageRefresh ? html : `<div class="page-enter">${html}</div>`;
     setupPageEvents(page);
   }
 
