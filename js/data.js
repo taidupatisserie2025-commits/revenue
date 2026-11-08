@@ -144,6 +144,7 @@ window.AppData = (function () {
     try {
       const keys = Object.values(K);
       let hasDataChanged = false;
+      let changedDailyReports = null;
 
       for (const k of keys) {
         const collectionName = COLLECTION_MAP[k];
@@ -176,6 +177,14 @@ window.AppData = (function () {
           const oldVal = localStorage.getItem(k);
           const newVal = JSON.stringify(merged);
           if (oldVal !== newVal) {
+            // LINE webhook 之類的外部來源只會直接寫 daily_reports，不會順便建立 LinePay/台新/Uber
+            // 對帳頁面需要的衍生資料，所以這裡挑出真正有變動的那幾筆日報表，等下補跑同一套衍生邏輯
+            if (k === K.DAILY) {
+              let oldList = [];
+              try { oldList = oldVal ? JSON.parse(oldVal) : []; } catch { oldList = []; }
+              const oldByDate = new Map(oldList.map(r => [r.date, r]));
+              changedDailyReports = merged.filter(r => r.date && JSON.stringify(r) !== JSON.stringify(oldByDate.get(r.date)));
+            }
             localStorage.setItem(k, newVal);
             hasDataChanged = true;
           }
@@ -184,6 +193,11 @@ window.AppData = (function () {
           for (const item of localOnly) { writeDoc(k, item); }
         }
       }
+
+      if (changedDailyReports && changedDailyReports.length) {
+        changedDailyReports.forEach(report => deriveFromDailyReport(report));
+      }
+
       updateCloudStatus(true);
       if (hasDataChanged && window.App && typeof window.App.refreshCurrentPage === 'function') {
         window.App.refreshCurrentPage(false);
@@ -546,5 +560,53 @@ window.AppData = (function () {
     },
   };
 
-  return { Daily, Linepay, LinepayBatches, Taishin, Uber, Cash, Transfer, Cyberbiz, Settings, syncToCloud, syncFromCloud };
+  // 從某天的現場日結金額，自動建立/更新 LinePay、台新、Uber 對帳頁面需要的衍生資料。
+  // 手動存日報表（app.js saveDailyForm）跟雲端同步撈到外部來源（例如 LINE webhook）新寫入的
+  // daily_reports 時都會呼叫這個，確保不管資料怎麼進來，對帳頁面都會自動更新。
+  function deriveFromDailyReport(report) {
+    const date = report.date;
+    const onsite = report.onsite || {};
+    if (!date) return;
+
+    if (onsite.linePay) {
+      const expectedPayoutDate = AppUtils.addBusinessDays(date, AppConfig.LINEPAY_BUSINESS_DAYS);
+      const existing = Linepay.getByDate(date);
+      Linepay.upsert({
+        date,
+        amount: onsite.linePay,
+        expectedPayoutDate,
+        status: existing?.status || 'pending',
+        actualAmount: existing?.actualAmount ?? null,
+        actualDate: existing?.actualDate ?? null,
+        payoutBatchId: existing?.payoutBatchId ?? null
+      });
+    } else {
+      Linepay.delete(date);
+    }
+
+    const taishinTotal = (onsite.taishinCC || 0) + (onsite.taishinAP || 0);
+    if (taishinTotal > 0) {
+      const settings = Settings.get();
+      const expectedPayoutDate = AppUtils.addBusinessDays(date, settings.taishinPayoutDays || AppConfig.TAISHIN_BUSINESS_DAYS);
+      const existing = Taishin.getByDate(date);
+      Taishin.upsert({
+        date,
+        creditCardAmount: onsite.taishinCC || 0,
+        applePayAmount:   onsite.taishinAP || 0,
+        totalAmount:      taishinTotal,
+        expectedPayoutDate,
+        status: existing?.status || 'pending',
+        actualAmount: existing?.actualAmount ?? null,
+        actualDate: existing?.actualDate ?? null,
+      });
+    } else {
+      Taishin.delete(date);
+    }
+
+    if (onsite.uber > 0) {
+      Uber.addDayAmount(date, onsite.uber);
+    }
+  }
+
+  return { Daily, Linepay, LinepayBatches, Taishin, Uber, Cash, Transfer, Cyberbiz, Settings, deriveFromDailyReport, syncToCloud, syncFromCloud };
 })();

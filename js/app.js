@@ -613,47 +613,8 @@ window.App = (function () {
 
     D.Daily.upsert({ date, onsite, notes: fd.get('notes') || '' });
 
-    // Auto-update LinePay payout entry (supports positive payments and negative refunds)
-    if (onsite.linePay !== 0) {
-      const expectedPayoutDate = U.addBusinessDays(date, C.LINEPAY_BUSINESS_DAYS);
-      const existing = D.Linepay.getByDate(date);
-      D.Linepay.upsert({
-        date,
-        amount: onsite.linePay,
-        expectedPayoutDate,
-        status: existing?.status || 'pending',
-        actualAmount: existing?.actualAmount ?? null,
-        actualDate: existing?.actualDate ?? null,
-        payoutBatchId: existing?.payoutBatchId ?? null
-      });
-    } else {
-      D.Linepay.delete(date);
-    }
-
-    // Auto-update Taishin payout entry
-    const taishinTotal = onsite.taishinCC + onsite.taishinAP;
-    if (taishinTotal > 0) {
-      const settings = D.Settings.get();
-      const expectedPayoutDate = U.addBusinessDays(date, settings.taishinPayoutDays || C.TAISHIN_BUSINESS_DAYS);
-      const existing = D.Taishin.getByDate(date);
-      D.Taishin.upsert({
-        date,
-        creditCardAmount: onsite.taishinCC,
-        applePayAmount:   onsite.taishinAP,
-        totalAmount:      taishinTotal,
-        expectedPayoutDate,
-        status: existing?.status || 'pending',
-        actualAmount: existing?.actualAmount ?? null,
-        actualDate: existing?.actualDate ?? null,
-      });
-    } else {
-      D.Taishin.delete(date);
-    }
-
-    // Auto-update Uber week
-    if (onsite.uber > 0) {
-      D.Uber.addDayAmount(date, onsite.uber);
-    }
+    // LinePay/台新/Uber 對帳頁面要用到的衍生資料，跟雲端同步撈到 LINE webhook 寫入的日報表共用同一套邏輯
+    D.deriveFromDailyReport({ date, onsite });
 
     toast('報表已儲存', 'success');
     navigate('daily');
